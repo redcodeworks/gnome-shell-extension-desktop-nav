@@ -165,7 +165,8 @@ for f in "${js_files[@]}"; do
         if (indis && depth <= disdepth && line ~ /\}/) indis = 0
       }
       END {
-        if (conn > 0 && disc_dis < conn) {
+        # prefs.js runs in its own process that ends with the window: no disable() to pair with
+        if (conn > 0 && disc_dis < conn && name != "prefs.js") {
           if (disc_all >= conn) print "WARN|" name ": " conn " signal connection(s), " disc_dis+0 " disconnect(s) in disable(), more elsewhere: check they are all reached from disable()"
           else print "FAIL|" name ": " conn " signal connection(s) but only " disc_all+0 " disconnect call(s): disconnect everything in disable()"
         }

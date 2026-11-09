@@ -11,7 +11,7 @@ import Meta from 'gi://Meta';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {BUTTONS, CONTEXTS, pickAction, settingsKey} from './actions.js';
+import {BUTTONS, CONTEXTS, overviewAllowed, pickAction, settingsKey} from './actions.js';
 
 // Button numbers as reported by event.get_button() (X11-style numbering:
 // 4-7 are scroll, so the side buttons are 8 and 9). UNVERIFIED on Shell 51.
@@ -41,6 +41,7 @@ export default class DesktopMouseNav extends Extension {
         }
         this._settings = null;
         this._actions = null;
+        this._flags = null;
         this._pressedButton = null;
     }
 
@@ -53,6 +54,10 @@ export default class DesktopMouseNav extends Extension {
                 this._actions[key] = this._settings.get_string(key);
             }
         }
+        this._flags = {
+            inOverview: this._settings.get_boolean('work-in-overview'),
+            inAppGrid: this._settings.get_boolean('work-in-app-grid'),
+        };
     }
 
     _onCapturedEvent(event) {
@@ -83,6 +88,15 @@ export default class DesktopMouseNav extends Extension {
             return Clutter.EVENT_PROPAGATE;
 
         if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible))
+            return Clutter.EVENT_PROPAGATE;
+
+        // Overview gate (UNVERIFIED detector: showAppsButton.checked). Note that
+        // Main.overview.toggle while the overview is open closes it, and the
+        // toggle-app-grid action while the grid is showing is already handled in
+        // _toggleAppGrid; both keep their behavior when the toggle allows it.
+        const overviewVisible = Main.overview.visible;
+        const appGridShowing = overviewVisible && Main.overview.dash.showAppsButton.checked;
+        if (!overviewAllowed({overviewVisible, appGridShowing}, this._flags))
             return Clutter.EVENT_PROPAGATE;
 
         const onDesktop = desktopSet && this._pointerOnEmptyDesktop(event);

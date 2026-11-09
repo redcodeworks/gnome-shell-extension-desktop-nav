@@ -20,7 +20,7 @@ On Wayland, log out and back in after the first install, then run `just enable`.
 
 By default, with no window under the pointer, Back goes to the previous workspace and Forward to the next one (it stops at the first and last workspace).
 
-Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app) to pick an action for each button in two places: on the empty desktop, and anywhere else. Anywhere else defaults to "Do nothing", so applications keep their buttons until you choose otherwise. Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing. If the desktop setting is "Do nothing", the anywhere setting applies on the desktop too.
+Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app) to pick an action for each button in two places: on the empty desktop, and anywhere else. Anywhere else defaults to "Do nothing", so applications keep their buttons until you choose otherwise. Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing. Two switches under "Overview" (both off by default) let the buttons also work while the overview is open ("Work in the Overview") or while the app grid is showing ("Work in the app grid"). If the desktop setting is "Do nothing", the anywhere setting applies on the desktop too.
 
 ## Contributing
 

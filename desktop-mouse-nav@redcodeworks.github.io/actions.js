@@ -40,3 +40,22 @@ export function pickAction(read, onDesktop, button) {
         id = read(settingsKey('anywhere', button));
     return ACTION_IDS.includes(id) ? id : 'none';
 }
+
+// Boolean settings: [key, title, subtitle] for the "Overview" group (both default false).
+export const OVERVIEW_SWITCHES = [
+    ['work-in-overview', 'Work in the Overview',
+        'Back and Forward also run while the overview is open.'],
+    ['work-in-app-grid', 'Work in the app grid',
+        'Back and Forward also run while the app grid is showing.'],
+];
+
+// Gate for the overview. `state` = {overviewVisible, appGridShowing}; `flags` =
+// {inOverview, inAppGrid}. App grid showing -> only with the app grid flag; else
+// overview visible -> only with the overview flag; neither showing -> always.
+export function overviewAllowed(state, flags) {
+    if (state.overviewVisible && state.appGridShowing)
+        return !!flags.inAppGrid;
+    if (state.overviewVisible)
+        return !!flags.inOverview;
+    return true;
+}

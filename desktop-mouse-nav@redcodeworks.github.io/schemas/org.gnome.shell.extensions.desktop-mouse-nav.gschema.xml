@@ -57,5 +57,15 @@
       <summary>Action for the forward button (anywhere)</summary>
       <description>Used when the pointer is anywhere (a window, a panel, the overview). 'none' leaves the button to the application.</description>
     </key>
+    <key name="work-in-overview" type="b">
+      <default>false</default>
+      <summary>Work in the Overview</summary>
+      <description>Run the Back and Forward actions also while the overview is open.</description>
+    </key>
+    <key name="work-in-app-grid" type="b">
+      <default>false</default>
+      <summary>Work in the app grid</summary>
+      <description>Run the Back and Forward actions also while the app grid is showing.</description>
+    </key>
   </schema>
 </schemalist>
