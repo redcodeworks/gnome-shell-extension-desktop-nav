@@ -1,6 +1,6 @@
 # Desktop Mouse Nav
 
-A GNOME Shell extension: choose what the mouse Back and Forward buttons do. By default, pressing one while the pointer is over the empty desktop moves to the previous or next workspace, and windows, games and the overview keep their own Back and Forward behavior.
+A GNOME Shell extension: choose what your extra mouse buttons do, with optional modifier keys. By default, pressing one while the pointer is over the empty desktop moves to the previous or next workspace, and windows, games and the overview keep their own Back and Forward behavior.
 
 ## Requirements
 
@@ -23,22 +23,30 @@ On Wayland, log out and back in after the first install, then run `just enable`.
 
 By default, with no window under the pointer, Back goes to the previous workspace and Forward to the next one (it stops at the first and last workspace).
 
-Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app) to pick an action for each button in two places:
+Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app). Each group is a list of rules: a mouse button, an optional modifier (Ctrl, Shift, Alt, Super or a combination) and an action. The first matching rule wins, and a rule only matches when exactly its modifiers are held.
 
-- **On the empty desktop** (also the overview and the app grid, see below).
-- **Top bar and shell surfaces**: the top bar and other parts of the Shell. It defaults to "Do nothing". GNOME never passes mouse buttons pressed over application windows to extensions (the Shell maintainers confirmed this on the GNOME Discourse in 2020; I have not re-checked it for Shell 51), so there is no setting for windows: applications always keep their buttons.
+**Add a rule:** choose "Add rule" at the end of a list, then click the mouse button you want to use. The button is detected, and any modifier keys you hold are pre-filled. Pick the modifier and the action, then choose Add. You can change the modifier or the action later in the list, or delete a rule with the trash button. The primary and secondary buttons cannot be used, the middle button only together with a modifier, and the same button and modifier cannot be bound twice in one list.
 
-If the desktop setting is "Do nothing", the shell setting applies there too. Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing.
+**Where rules apply:**
 
-Switches:
+- **On the empty desktop**: the pointer is over the desktop background (not over a window). If no rule here matches, the rules for the top bar and shell surfaces are tried too.
+- **Top bar and shell surfaces**: the top bar and other parts of the Shell.
+- **Overview** and **App grid**: while they are open, only their own rules apply, and only when you switch them on ("Enable for the Overview", "Enable for the app grid", both off by default). In the app grid, previous and next workspace turn the pages of the grid instead.
 
-- "Enable for the Overview" and "Enable for the app grid" (both off by default): let the buttons run while the overview or the app grid is open. There the desktop setting applies. In the app grid, previous and next workspace turn the pages of the grid instead (it stops at the first and last page).
+GNOME never passes mouse buttons pressed over application windows to extensions (the Shell maintainers confirmed this on the GNOME Discourse in 2020; I have not re-checked it for Shell 51), so there is nothing to set for windows: applications always keep their buttons.
+
+Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing.
+
+Other settings:
+
 - "Wrap around workspaces" (off by default): Back on the first workspace goes to the last, and Forward on the last goes to the first. Also applies to moving a window.
-- "Log button presses" (Advanced, off by default): for troubleshooting. Writes one line per Back or Forward press to the journal; read it with `journalctl --user -b -o cat | grep desktop-mouse-nav`.
+- "Log button presses" (Advanced, off by default): for troubleshooting. Writes one line per handled press to the journal; read it with `journalctl --user -b -o cat | grep desktop-mouse-nav`.
+
+Upgrading from 0.2.0: the old per-button settings are gone, and the default rules (Back and Forward switch workspaces on the desktop) are back; other choices from 0.2.0 have to be added again as rules.
 
 ## Contributing
 
-Work happens on a branch (`feat/<topic>`, `fix/<topic>`) that goes by pull request into `testing`, and a pull request promotes `testing` to `main`. Maintainer notes are in `CLAUDE.md`. Run `just test` first. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.2.0`).
+Work happens on a branch (`feat/<topic>`, `fix/<topic>`) that goes by pull request into `testing`, and a pull request promotes `testing` to `main`. Maintainer notes are in `CLAUDE.md`. Run `just test` first. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.3.0`).
 
 ## License
 
