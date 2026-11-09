@@ -11,8 +11,8 @@ A GNOME Shell extension: choose what the mouse Back and Forward buttons do. By d
 
 Pick one:
 
-- From a release (no build tools needed): `just install-release` installs the latest release, `just install-release 0.1.0` a specific one. It verifies the checksum first; `--dry-run` shows what it would do. You can also download the zip from the Releases page and unpack it into `~/.local/share/gnome-shell/extensions/desktop-mouse-nav@redcodeworks.github.io/`.
-- From source: `just install` builds the zip and unpacks it into the extensions directory (needs `gnome-extensions`).
+- From a release (no build tools needed): `just install-release` installs the latest release, `just install-release 0.1.0` a specific one. It verifies the checksum first; `--dry-run` shows what it would do. You can also download the zip from the Releases page and unpack it into `~/.local/share/gnome-shell/extensions/desktop-mouse-nav@redcodeworks.github.io/`, then run `glib-compile-schemas schemas/` inside that directory.
+- From source: `just install` builds the zip and unpacks it into the extensions directory (needs `gnome-extensions`). Both unpack routes compile the settings schema, which needs `glib-compile-schemas` (Fedora package `glib2-devel`).
 
 On Wayland, log out and back in after the first install, then run `just enable`. `just uninstall` removes it again.
 

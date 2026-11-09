@@ -18,6 +18,12 @@ mkdir -p "$extdir"
 stage=$(mktemp -d "$extdir/.${uuid}.new.XXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
 unzip -q "$zip" -d "$stage"
+# The zip ships the schema XML only: EGO and `gnome-extensions install` compile it, this unpack route must.
+if compgen -G "$stage/schemas/*.gschema.xml" >/dev/null; then
+    command -v glib-compile-schemas >/dev/null || {
+        echo "error: glib-compile-schemas is not installed (Fedora: glib2-devel); kept the existing copy" >&2; exit 1; }
+    glib-compile-schemas --strict "$stage/schemas"
+fi
 rm -rf -- "$target"
 mv -- "$stage" "$target"
 trap - EXIT
