@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [testing]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    container: fedora:45
+    steps:
+      - name: Install tools
+        run: dnf install -y --setopt=install_weak_deps=False git nodejs gnome-shell
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: JSON validity
+        run: node -e 'JSON.parse(require("fs").readFileSync("desktop-mouse-nav@redcodeworks.github.io/metadata.json","utf8"))'
+      - name: JS syntax
+        run: |
+          d=$(mktemp -d)
+          cp desktop-mouse-nav@redcodeworks.github.io/extension.js "$d/extension.mjs"
+          node --check "$d/extension.mjs"
+      - name: Pack
+        run: gnome-extensions pack --force --out-dir dist desktop-mouse-nav@redcodeworks.github.io
