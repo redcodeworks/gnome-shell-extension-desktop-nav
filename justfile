@@ -13,11 +13,11 @@ lint:
     node -e 'JSON.parse(require("fs").readFileSync("{{uuid}}/metadata.json","utf8"))'
     d=$(mktemp -d) && cp {{uuid}}/extension.js "$d/extension.mjs" && node --check "$d/extension.mjs"; rc=$?; rm -rf "$d"; exit $rc
 
-# Build the installable zip into dist/ (creates the directory first).
+# Build the installable zip into dist/ (creates the directory first; LICENSE goes into the zip root).
 [group('development')]
 pack:
     mkdir -p dist
-    gnome-extensions pack --force --out-dir dist {{uuid}}
+    gnome-extensions pack --force --out-dir dist --extra-source={{justfile_directory()}}/LICENSE {{uuid}}
 
 # Build the zip and unpack it into the extensions directory (replaces this uuid only).
 [group('extension')]

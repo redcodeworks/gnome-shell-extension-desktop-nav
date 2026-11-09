@@ -8,6 +8,7 @@ meta=$tmp/metadata.json; echo '{"shell-version":["51"]}' > "$meta"; export METAD
 pkg() { echo "gnome-shell|0|$1|$2|x86_64|$3"; } # VERSION RELEASE REPOID
 reset() { rm -rf "$STUB_DNF_DIR" "$STUB_BODY" "$STUB_TITLE" "$STUB_LABEL_CREATED"; mkdir -p "$STUB_DNF_DIR"; : > "$STUB_LOG"
     unset STUB_LABEL_ISSUES STUB_TITLE_ISSUES STUB_LABELS; }
+printf '[rawhide-stub-id]\nname=Fedora - Rawhide\nenabled=0\n\n[rawhide-stub-id-source]\nname=x\n' > "$tmp/rawhide.repo"; export RAWHIDE_REPO_FILE=$tmp/rawhide.repo
 run() { "$root/scripts/gnome-version-watch.sh"; }
 
 reset; pkg 51.1 1.fc45 updates > "$STUB_DNF_DIR/45"; pkg 51.1 1.fc46 rawhide > "$STUB_DNF_DIR/rawhide"
@@ -26,6 +27,13 @@ grep -q 'devkit --wayland' "$STUB_BODY" && pass "body has the nested session che
 
 reset; pkg 52~beta 1.fc46 rawhide > "$STUB_DNF_DIR/rawhide"
 expect_rc 0 "52~beta (rpm tilde) counts as 52" run; [ "$(cat "$STUB_TITLE")" = "Support GNOME Shell 52" ] && pass "tilde major" || fail "tilde major"
+
+reset; pkg 52~alpha.1 1.fc46 rawhide-stub-id > "$STUB_DNF_DIR/rawhide"
+expect_rc 0 "52~alpha.1 counts as 52" run; [ "$(cat "$STUB_TITLE")" = "Support GNOME Shell 52" ] && pass "tilde+dot major" || fail "tilde+dot major"
+grep -q -- '--repo=rawhide-stub-id ' "$STUB_LOG" && pass "rawhide repo id read from the .repo file" || fail "rawhide repo id not taken from the file"
+
+reset; pkg 52.alpha 1.fc46 rawhide-stub-id > "$STUB_DNF_DIR/rawhide"
+RAWHIDE_REPO_FILE=$tmp/missing.repo expect_rc 3 "no rawhide .repo file: channel skipped, nothing found" run; expect_out 'fedora-repos-rawhide' "missing package hinted"
 
 reset; pkg 52.beta 1.fc46 updates-testing > "$STUB_DNF_DIR/46"; pkg 53.alpha 1.fc47 rawhide > "$STUB_DNF_DIR/rawhide"
 expect_rc 0 "branched release exists: it wins over rawhide" run

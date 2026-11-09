@@ -64,8 +64,14 @@ expect_rc 1 "gnome.org uuid fails" pf "$tmp/gn.zip"
 mk bu >/dev/null; meta bu '.uuid = "no-at-sign"'; zipit bu
 expect_rc 1 "invalid uuid fails" pf "$tmp/bu.zip"
 
-mk sm >/dev/null; meta sm '. + {"session-modes": ["user"]}'; zipit sm
-expect_rc 1 "unused session-modes fails" pf "$tmp/sm.zip"
+mk dev2 >/dev/null; meta dev2 '.["shell-version"] = ["51","52.beta","53.alpha"]'; zipit dev2
+expect_rc 1 "two development entries fail" pf "$tmp/dev2.zip"; expect_out 'more than one development' "two dev entries message"
+
+mk devhi >/dev/null; meta devhi '.["shell-version"] = ["51","53","52.beta"]'; zipit devhi
+expect_rc 1 "stable major above the development entry fails" pf "$tmp/devhi.zip"; expect_out 'above the development' "stable above dev message"
+
+mk devrc >/dev/null; meta devrc '.["shell-version"] = ["51","52.rc"]'; zipit devrc
+expect_rc 1 "an .rc entry fails" pf "$tmp/devrc.zip"
 
 mk don >/dev/null; meta don '. + {donations: {}}'; zipit don
 expect_rc 1 "empty donations fails" pf "$tmp/don.zip"
@@ -74,6 +80,19 @@ mk vn >/dev/null; meta vn '.["version-name"] = "1.0-beta"'; zipit vn
 expect_rc 1 "hyphen in version-name fails" pf "$tmp/vn.zip"
 
 # warnings only (still exit 0)
+mk sm >/dev/null; meta sm '. + {"session-modes": ["user"]}'; zipit sm
+expect_rc 0 "redundant session-modes is only a warning" pf "$tmp/sm.zip"; expect_out 'WARN \| metadata \| session-modes' "session-modes warning"
+
+mk dev1 >/dev/null; meta dev1 '.["shell-version"] = ["50","51","52.beta"]'; zipit dev1
+expect_rc 0 "one development entry passes" pf "$tmp/dev1.zip"
+
+mk gsc >/dev/null; mkdir "$tmp/f-gsc/schemas"; echo x > "$tmp/f-gsc/schemas/gschemas.compiled"; zipit gsc
+expect_rc 0 "gschemas.compiled is only a warning" pf "$tmp/gsc.zip"; expect_out 'not stated in the guidelines \(unverified\)' "unverified wording"
+
+mk lic >/dev/null; cp "$root/LICENSE" "$tmp/f-lic/LICENSE"; zipit lic
+expect_rc 0 "LICENSE in the zip passes" pf "$tmp/lic.zip"; expect_out 'PASS \| files \| license file in the zip' "license in zip noted"
+expect_rc 0 "no LICENSE in the zip is only a warning" pf "$tmp/good.zip"; expect_out 'no LICENSE file in the zip: not stated in the guidelines \(unverified\)' "missing license warning"
+
 mk dbg >/dev/null; zipit dbg
 expect_rc 0 "console.debug is only a warning" pf "$tmp/dbg.zip"; expect_out 'WARN \| code' "debug warning shown"
 
