@@ -21,15 +21,24 @@ Everything about runtime behavior, in particular:
 - That `get_actor_at_pos(REACTIVE)` returns the background actor (reactive because of the desktop context menu) on the empty desktop in Shell 51, and that `Meta.BackgroundActor` is still the class used.
 - `Main.modalCount`, `Main.sessionMode.isLocked`, `Main.layoutManager._backgroundGroup` (private) still exist in 51.
 - Whether the click reaches the stage at all with Dash to Dock, Tiling Shell, desktop-icon extensions (those add windows or chrome over the desktop, which then count as "not the desktop").
-- `gnome-extensions pack` segfaulted when run on the dev host from the agent session (signal 11); CI's Fedora 45 container is the real packaging check. Whether the `fedora:45` container image and `ubuntu-26.04` runner are available is checked by the first CI run.
+- `gnome-extensions pack --out-dir` segfaults (signal 11, exit 139) when the output directory does not exist: `just pack` and CI create `dist/` first. CI on the `fedora:45` container and `ubuntu-26.04` runner worked for the other steps.
 
 ## Testing
 ```
-just lint            # JSON + JS syntax
-just pack            # dist/*.zip
-just install-local   # prints the install commands
+just lint        # JSON + JS syntax (extension.js is checked as a temp .mjs copy)
+just pack        # dist/*.zip (dist/ is gitignored)
+just install     # pack, then unzip into ~/.local/share/gnome-shell/extensions/<uuid> (replaces that uuid only)
+just enable      # gnome-extensions enable; fails until the Shell knows the extension (log out and in first)
+just uninstall   # disable if known, remove the directory
+just status      # gnome-extensions info + whether the directory exists
+just test        # lint + install/reinstall/uninstall into a temp dir via GNOME_EXTENSIONS_DIR; home untouched
 ```
-Install, log out and in (Wayland), `gnome-extensions enable desktop-mouse-nav@redcodeworks.github.io`, watch logs with `journalctl -f -o cat /usr/bin/gnome-shell` (debug lines need debug logging enabled, e.g. `G_MESSAGES_DEBUG=all`). Test: click Back/Forward on empty desktop, on a window, in the overview.
+There are no unit tests and no single-test command: `just test` only checks packaging and install mechanics, never runtime behavior (that needs a live Shell). The justfile `uuid` must match `metadata.json` (`install` refuses otherwise).
+
+Manual run: `just install`, log out and in (Wayland), `just enable`, watch logs with `journalctl -f -o cat /usr/bin/gnome-shell` (debug lines need debug logging enabled, e.g. `G_MESSAGES_DEBUG=all`). Test: click Back/Forward on empty desktop, on a window, in the overview.
 
 ## CI
-`.github/workflows/ci.yml`, push to `testing` only, one required job `test` (runner `ubuntu-26.04`, `fedora:45` container, actions pinned by SHA): JSON, JS syntax, `gnome-extensions pack`.
+`.github/workflows/ci.yml`, push to `testing` only, one required job `test` (runner `ubuntu-26.04`, `fedora:45` container, actions pinned by SHA): JSON, JS syntax, `gnome-extensions pack`, `just test`.
+
+## Why install unpacks the zip
+`gnome-extensions install --force <zip>` failed for Kevin with "Can't recursively copy directory". Probable cause (UNVERIFIED guess): a cross-filesystem move from the temp dir into `~/.local/share/gnome-shell/extensions`. Unpacking the zip directly into the extensions directory avoids it. `SKIP_GNOME_EXTENSIONS=1` makes `uninstall` skip gnome-extensions calls (used by `just test` so a real install of the same uuid is never disabled).

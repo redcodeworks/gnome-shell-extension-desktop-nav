@@ -15,6 +15,10 @@ jobs:
       - name: Install tools
         run: dnf install -y --setopt=install_weak_deps=False git nodejs gnome-shell
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install tools for just
+        run: dnf install -y --setopt=install_weak_deps=False just unzip
+      - name: Install and uninstall in a temp dir
+        run: just test
       - name: JSON validity
         run: node -e 'JSON.parse(require("fs").readFileSync("desktop-mouse-nav@redcodeworks.github.io/metadata.json","utf8"))'
       - name: JS syntax
@@ -23,4 +27,4 @@ jobs:
           cp desktop-mouse-nav@redcodeworks.github.io/extension.js "$d/extension.mjs"
           node --check "$d/extension.mjs"
       - name: Pack
-        run: gnome-extensions pack --force --out-dir dist desktop-mouse-nav@redcodeworks.github.io
+        run: mkdir -p dist && gnome-extensions pack --force --out-dir dist desktop-mouse-nav@redcodeworks.github.io

@@ -8,14 +8,7 @@ A GNOME Shell extension: press the mouse Back or Forward button while the pointe
 
 ## Install and usage
 
-Build the zip and install it:
-
-```
-just pack
-gnome-extensions install --force dist/desktop-mouse-nav@redcodeworks.github.io.shell-extension.zip
-```
-
-On Wayland, log out and back in, then enable it with `gnome-extensions enable desktop-mouse-nav@redcodeworks.github.io`.
+Run `just install`, log out and back in (needed on Wayland), then run `just enable`. `just uninstall` removes it again.
 
 Usage: with no window under the pointer, Back goes to the previous workspace and Forward to the next one. It stops at the first and last workspace (no wrap-around).
 
