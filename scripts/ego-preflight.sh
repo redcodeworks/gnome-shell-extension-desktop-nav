@@ -39,15 +39,15 @@ else
 fi
 
 # --- files in the zip ---
-has_schema_xml=0
+has_schema_xml=0 has_license_file=0
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     case $f in
         */) continue ;;
         extension.js|metadata.json|prefs.js|stylesheet.css) ;;
         schemas/*.gschema.xml) has_schema_xml=1 ;;
-        schemas/gschemas.compiled) add WARN "files" "schemas/gschemas.compiled is shipped: confirm the guidelines want the compiled schema included (the Shell compiles schemas itself since 44)" ;;
-        LICENSE|LICENSE.*|COPYING|COPYING.*) ;;
+        schemas/gschemas.compiled) add WARN "files" "schemas/gschemas.compiled is shipped: not stated in the guidelines (unverified)" ;;
+        LICENSE|LICENSE.*|COPYING|COPYING.*) has_license_file=1 ;;
         *.po|*.pot|*.mo) add FAIL "files" "translation file $f (not allowed in the upload)" ;;
         *.png|*.jpg|*.jpeg|*.gif|*.svg|*.webp|*.ico|*.mp3|*.ogg|*.wav|*.mp4|*.webm|*.ttf|*.otf|*.woff|*.woff2) add FAIL "files" "media/font file $f" ;;
         *.sh|Makefile|makefile|justfile|package.json|package-lock.json|*.py|*.mk|Dockerfile|*.yml|*.yaml) add FAIL "files" "build/script file $f" ;;
@@ -60,6 +60,7 @@ done < <(unzip -Z1 "$zip")
 while IFS= read -r f; do
     if LC_ALL=C grep -qP '\x00' "$f" 2>/dev/null; then add FAIL "files" "binary content in ${f#"$src"/}"; fi
 done < <(find "$src" -type f \( -name '*.js' -o -name '*.json' -o -name '*.css' -o -name '*.xml' \))
+[ "$has_license_file" = 1 ] && add PASS "files" "license file in the zip" || add WARN "files" "no LICENSE file in the zip: not stated in the guidelines (unverified)"
 [ -f "$src/extension.js" ] && add PASS "files" "extension.js present" || add FAIL "files" "extension.js missing at the zip root"
 [ -f "$src/metadata.json" ] && add PASS "files" "metadata.json present" || add FAIL "files" "metadata.json missing at the zip root"
 
@@ -79,7 +80,7 @@ if [ -f "$m" ] && jq -e 'type == "object"' "$m" >/dev/null 2>&1; then
         add WARN "metadata" "no version-name (optional, but the release tag needs it)"
     fi
     if mt 'has("session-modes")'; then
-        if mt '.["session-modes"] == ["user"]'; then add FAIL "metadata" "session-modes is just [\"user\"], the default: remove it"
+        if mt '.["session-modes"] == ["user"]'; then add WARN "metadata" "session-modes is just [\"user\"], the default and redundant (not banned by the guidelines): remove it"
         else add WARN "metadata" "session-modes set: confirm the extension really needs it and explain the unlock-dialog use to the reviewer"; fi
     else add PASS "metadata" "no session-modes"; fi
     if mt 'has("donations")'; then
@@ -87,9 +88,16 @@ if [ -f "$m" ] && jq -e 'type == "object"' "$m" >/dev/null 2>&1; then
             add FAIL "metadata" "donations is present but empty"
         else add PASS "metadata" "donations has entries"; fi
     else add PASS "metadata" "no donations field"; fi
-    if mt '(.["shell-version"]|type == "array") and (.["shell-version"]|length) > 0 and all(.["shell-version"][]; type == "string" and test("^[0-9]+(\\.(alpha|beta|rc))?$"))'; then
-        add PASS "metadata" "shell-version entries are major-version strings ($(jq -c '.["shell-version"]' "$m"))"
-    else add FAIL "metadata" "shell-version must be a non-empty list of major-version strings like \"51\" (not 51.1, not numbers)"; fi
+    # stable entries are majors ("51"); at most ONE development entry ("52.beta"/"52.alpha"),
+    # and no stable major above it. Future-version plausibility is Shexli's job (see the workflow).
+    if mt '(.["shell-version"]|type == "array") and (.["shell-version"]|length) > 0 and all(.["shell-version"][]; type == "string" and test("^[0-9]+(\\.(alpha|beta))?$"))'; then
+        sv_dev=$(jq -r '[.["shell-version"][]|select(test("\\."))|capture("^(?<n>[0-9]+)").n|tonumber]|sort|.[]' "$m")
+        sv_ndev=$(printf '%s' "$sv_dev" | grep -c .)
+        sv_max=$(jq -r '[.["shell-version"][]|select(test("\\.")|not)|tonumber]|max // 0' "$m")
+        if [ "$sv_ndev" -gt 1 ]; then add FAIL "metadata" "shell-version lists more than one development release ($(jq -c '.["shell-version"]' "$m")): at most one is allowed"
+        elif [ "$sv_ndev" -eq 1 ] && [ "$sv_max" -gt "$sv_dev" ]; then add FAIL "metadata" "shell-version lists a stable major ($sv_max) above the development release ($sv_dev)"
+        else add PASS "metadata" "shell-version entries are major-version strings with at most one development release ($(jq -c '.["shell-version"]' "$m"))"; fi
+    else add FAIL "metadata" "shell-version must be a non-empty list of major-version strings like \"51\" (plus at most one \"52.beta\" or \"52.alpha\"; not 51.1, not numbers)"; fi
     if mt 'has("url")'; then
         u=$(mj .url)
         if [ -z "$repo_url" ]; then add WARN "metadata" "url not compared (no --repo-url and no GITHUB_REPOSITORY)"

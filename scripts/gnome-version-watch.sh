@@ -11,7 +11,10 @@
 # Environment: METADATA (path to metadata.json), REPO (owner/name, for gh),
 #   CHANNELS, PACKAGE (default gnome-shell), DNF (default dnf), GH (default gh),
 #   RELEASED_VER (default: VERSION_ID of /etc/os-release), DRY_RUN=1 (never touch GitHub),
-#   RELEASEVER_<channel> / REPOS_<channel> to override a channel's definition.
+#   RELEASEVER_<channel> / REPOS_<channel> to override a channel's definition,
+#   RAWHIDE_REPO_FILE (default /usr/share/dnf5/repos.d/fedora-rawhide.repo, from the
+#   package fedora-repos-rawhide): the rawhide repository id is READ from this file
+#   (first [section]), never hard-coded; without the file the rawhide channel is skipped.
 # The version string is data: it is only matched against a regex and compared as numbers.
 # Exit: 0 = done (issue created or nothing to do), 1 = error, 3 = no channel produced a version.
 set -uo pipefail
@@ -30,19 +33,28 @@ if [ -z "$released" ] && [ -r /etc/os-release ]; then
 fi
 [[ $released =~ ^[0-9]+$ ]] || { say "cannot determine the released Fedora version (set RELEASED_VER)"; exit 1; }
 
+rawhide_repo_file=${RAWHIDE_REPO_FILE:-/usr/share/dnf5/repos.d/fedora-rawhide.repo}
+rawhide_repo_id() { # first [id] of the .repo file shipped by fedora-repos-rawhide
+    [ -r "$rawhide_repo_file" ] || return 1
+    sed -n 's/^\[\([A-Za-z0-9._-]\{1,\}\)\][[:space:]]*$/\1/p' "$rawhide_repo_file" | head -n 1
+}
+
 # channel definition: "<releasever> <repo ids>"
 channel_def() {
     case $1 in
         released) echo "${RELEASEVER_released:-$released} ${REPOS_released:-fedora,updates}" ;;
         branched) echo "${RELEASEVER_branched:-$((released + 1))} ${REPOS_branched:-fedora,updates,updates-testing}" ;;
-        rawhide)  echo "${RELEASEVER_rawhide:-rawhide} ${REPOS_rawhide:-rawhide}" ;;
+        rawhide)
+            local rid=${REPOS_rawhide:-$(rawhide_repo_id)}
+            [ -n "$rid" ] || { say "rawhide channel: no repository id (is fedora-repos-rawhide installed? looked in $rawhide_repo_file)" >&2; return 1; }
+            echo "${RELEASEVER_rawhide:-rawhide} $rid" ;;
         *) return 1 ;;
     esac
 }
 
 found_channel= found_nevr= found_repo= found_ver= found_rv=
 for ch in $channels; do
-    def=$(channel_def "$ch") || { say "unknown channel '$ch', skipped"; continue; }
+    def=$(channel_def "$ch") || { say "channel '$ch' not usable, skipped"; continue; }
     rv=${def%% *} repos=${def#* }
     err=$(mktemp)
     out=$("$dnf" repoquery --releasever="$rv" --repo="$repos" --arch=x86_64,noarch --latest-limit=1 \

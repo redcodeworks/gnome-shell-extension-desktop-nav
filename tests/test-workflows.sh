@@ -38,6 +38,20 @@ if on.get("push", {}).get("branches") != ["main"]: err("promote.yml must trigger
 if list(docs.get("prepare-ego.yml", {}).get(True, {}).keys()) != ["workflow_dispatch"]: err("prepare-ego.yml must be workflow_dispatch only")
 w = docs.get("gnome-version-watch.yml", {}); on = w.get(True, w.get("on"))
 if set(on) != {"schedule", "workflow_dispatch"}: err("gnome-version-watch.yml triggers must be schedule and workflow_dispatch")
+# prepare-ego: Shexli is optional, report only, pinned, and installed with uv (no curl | sh, no pip --user)
+pe = docs.get("prepare-ego.yml", {})
+steps = [st for j in pe.get("jobs", {}).values() for st in j.get("steps", [])]
+sx = [st for st in steps if "shexli" in st.get("name", "").lower()]
+if len(sx) != 1: err("prepare-ego.yml needs exactly one Shexli step")
+else:
+    st = sx[0]; run = st.get("run", "")
+    if st.get("continue-on-error") is not True: err("Shexli step must have continue-on-error: true")
+    if not re.search(r"shexli==\d+\.\d+\.\d+", run): err("Shexli version is not pinned")
+    if "venv --python 3.12" not in run: err("Shexli must run in a uv venv with Python 3.12")
+    if "sha256sum -c" not in run: err("uv download is not checksum verified")
+    if re.search(r"\|\s*(ba)?sh\b", run) or "--user" in run or "pip install -g" in run: err("Shexli step installs unsafely")
+    if "exit 0" not in run.splitlines()[-1]: err("Shexli step must end with exit 0 (report only)")
+if not any("shexli" in str((st.get("with") or {}).get("name", "")) for st in steps): err("no shexli artifact upload")
 # least privilege
 for f, y in docs.items():
     top = y.get("permissions")

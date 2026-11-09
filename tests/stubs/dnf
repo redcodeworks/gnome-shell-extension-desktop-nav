@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Stub dnf for the version-watch tests: answers `repoquery --releasever=X` from $STUB_DNF_DIR/X.
+# Stub dnf for the version-watch tests: answers `repoquery --releasever=X` from $STUB_DNF_DIR/X
+# (lines in the real dnf5 shape: name|epoch|version|release|arch|repoid).
 for a in "$@"; do case $a in --releasever=*) rv=${a#--releasever=} ;; esac; done
 echo "dnf $*" >> "${STUB_LOG:-/dev/null}"
 [ -f "$STUB_DNF_DIR/$rv" ] || { echo "Failed to download metadata for repo 'fedora' (releasever $rv)" >&2; exit 1; }
