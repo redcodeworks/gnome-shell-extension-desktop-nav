@@ -20,7 +20,18 @@ On Wayland, log out and back in after the first install, then run `just enable`.
 
 By default, with no window under the pointer, Back goes to the previous workspace and Forward to the next one (it stops at the first and last workspace).
 
-Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app) to pick an action for each button in two places: on the empty desktop, and anywhere else. Anywhere else defaults to "Do nothing", so applications keep their buttons until you choose otherwise. Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing. Two switches under "Overview" (both off by default) let the buttons also work while the overview is open ("Work in the Overview") or while the app grid is showing ("Work in the app grid"). If the desktop setting is "Do nothing", the anywhere setting applies on the desktop too.
+Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app) to pick an action for each button in two places:
+
+- **On the empty desktop** (also the overview and the app grid, see below).
+- **Top bar and shell surfaces**: the top bar and other parts of the Shell. It defaults to "Do nothing". GNOME never passes mouse buttons pressed over application windows to extensions (the Shell maintainers confirmed this on the GNOME Discourse in 2020; I have not re-checked it for Shell 51), so there is no setting for windows: applications always keep their buttons.
+
+If the desktop setting is "Do nothing", the shell setting applies there too. Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing.
+
+Switches:
+
+- "Enable for the Overview" and "Enable for the app grid" (both off by default): let the buttons run while the overview or the app grid is open. There the desktop setting applies. In the app grid, previous and next workspace turn the pages of the grid instead (it stops at the first and last page).
+- "Wrap around workspaces" (off by default): Back on the first workspace goes to the last, and Forward on the last goes to the first. Also applies to moving a window.
+- "Log button presses" (Advanced, off by default): for troubleshooting. Writes one line per Back or Forward press to the journal; read it with `journalctl --user -b -o cat | grep desktop-mouse-nav`.
 
 ## Contributing
 

@@ -18,7 +18,7 @@ cat > "$tmp/js/dump.mjs" <<'JS'
 import * as a from './actions.mjs';
 const table = {
   'desktop-back': 'prev-workspace', 'desktop-forward': 'next-workspace',
-  'anywhere-back': 'none', 'anywhere-forward': 'none',
+  'shell-back': 'none', 'shell-forward': 'none',
 };
 const out = {
   schema: a.SCHEMA_ID, ids: a.ACTION_IDS,
@@ -26,8 +26,22 @@ const out = {
   // button x context x (desktop set to, anywhere set to) -> picked action
   defaults: Object.fromEntries(a.BUTTONS.flatMap(b => [true, false].map(d =>
     [`${b}/${d ? 'desktop' : 'elsewhere'}`, a.pickAction(k => table[k], d, b)]))),
-  anywhereOnly: a.pickAction(k => ({'desktop-back': 'none', 'anywhere-back': 'toggle-overview'})[k], true, 'back'),
-  desktopWins: a.pickAction(k => ({'desktop-forward': 'next-workspace', 'anywhere-forward': 'toggle-overview'})[k], true, 'forward'),
+  anywhereOnly: a.pickAction(k => ({'desktop-back': 'none', 'shell-back': 'toggle-overview'})[k], true, 'back'),
+  desktopWins: a.pickAction(k => ({'desktop-forward': 'next-workspace', 'shell-forward': 'toggle-overview'})[k], true, 'forward'),
+  shellOnly: a.pickAction(k => ({'desktop-back': 'prev-workspace', 'shell-back': 'toggle-overview'})[k], false, 'back'),
+  contexts: a.CONTEXTS,
+  ctx: [[false,false,true],[false,false,false],[true,false,false],[true,true,false]].map(([o,g,d]) =>
+    a.pointerContext({overviewVisible: o, appGridShowing: g, onEmptyDesktop: d})),
+  asDesktop: ['desktop','overview','app-grid','shell'].map(c => a.treatAsDesktop(c)),
+  overviewFallback: a.pickAction(k => ({'desktop-back': 'none', 'shell-back': 'next-workspace'})[k], a.treatAsDesktop('overview'), 'back'),
+  resolve: [['prev-workspace','app-grid'],['next-workspace','app-grid'],['toggle-overview','app-grid'],
+    ['prev-workspace','overview'],['next-workspace','desktop']].map(([x,c]) => a.resolveAction(x, c)),
+  pages: [[0,5,-1],[0,5,1],[2,5,-1],[2,5,1],[4,5,1],[4,5,-1],[0,1,1],[0,1,-1],[0,0,1],[0,0,-1],[-1,0,1],[7,5,1],[null,5,1]]
+    .map(([c,n,s]) => a.pageTarget(c, n, s)),
+  ws: [[0,4,-1,0],[0,4,-1,1],[3,4,1,0],[3,4,1,1],[1,4,-1,0],[1,4,1,1],[0,1,1,1],[0,1,-1,1],[0,1,1,0],[0,0,1,1],[5,4,1,1]]
+    .map(([i,n,s,w]) => a.workspaceTarget(i, n, s, !!w)),
+  log: [a.debugLine(false,'back','desktop','none','ran'), a.debugLine(true,'back','app-grid','prev-workspace','at-end')],
+  boolKeys: a.BOOLEAN_KEYS,
   unknown: a.pickAction(() => 'rm-rf', true, 'back'),
   gate: Object.fromEntries([[1,1],[1,0],[0,1],[0,0]].flatMap(([o,g]) =>
     [[true,true],[true,false],[false,false]].map(([v,grid]) =>
@@ -44,9 +58,9 @@ grep -q "<schema id=\"$(d .schema)\"" "$xml" && pass "schema XML declares that i
 
 # keys: each key and its default, parsed from the XML
 awk -F'"' '/<key name=/ {k=$2} /<default>/ {gsub(/.*<default>\x27?|\x27?<\/default>.*/, ""); print k, $0}' "$xml" | sort > "$tmp/defaults"
-want=$'anywhere-back none\nanywhere-forward none\ndesktop-back prev-workspace\ndesktop-forward next-workspace\nwork-in-app-grid false\nwork-in-overview false'
-[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema defaults: desktop back/forward switch workspaces, anywhere is none" || { fail "schema defaults"; cat "$tmp/defaults" >&2; }
-[ "$(d '(.keys + .switches)|sort|join(" ")')" = "$(cut -d' ' -f1 "$tmp/defaults" | tr '\n' ' ' | sed 's/ $//')" ] && pass "schema keys equal actions.js keys" || fail "schema keys differ from actions.js"
+want=$'debug-log false\ndesktop-back prev-workspace\ndesktop-forward next-workspace\nshell-back none\nshell-forward none\nwork-in-app-grid false\nwork-in-overview false\nwrap-workspaces false'
+[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema defaults: desktop back/forward switch workspaces, shell is none, debug-log and wrap-workspaces off" || { fail "schema defaults"; cat "$tmp/defaults" >&2; }
+[ "$(d '(.keys + .boolKeys)|sort|join(" ")')" = "$(cut -d' ' -f1 "$tmp/defaults" | tr '\n' ' ' | sed 's/ $//')" ] && pass "schema keys equal actions.js keys" || fail "schema keys differ from actions.js"
 
 # choices of every key equal the action ids
 ids=$(d '.ids|sort|join(" ")')
@@ -69,6 +83,21 @@ for k in $(d '.keys[]'); do
     v=$(grep "^$k " "$tmp/defaults" | cut -d' ' -f2)
     [ "$(jq -r --arg v "$v" '.ids|index($v)' "$tmp/dump.json")" != null ] && pass "default of $k ($v) is in the action list" || fail "default of $k ($v) not in the action list"
 done
+
+[ "$(d '.contexts|join(" ")')" = "desktop shell" ] && pass "contexts are desktop and shell" || fail "contexts"
+[ "$(d .shellOnly)" = toggle-overview ] && pass "shell surface: only the shell action" || fail "shell-only"
+[ "$(d '.ctx|join(" ")')" = "desktop shell overview app-grid" ] && pass "pointer context: desktop, shell, overview, app-grid" || fail "pointer context"
+[ "$(d '.asDesktop|map(tostring)|join(" ")')" = "true true true false" ] && pass "overview and app grid count as the desktop" || fail "treatAsDesktop"
+[ "$(d .overviewFallback)" = next-workspace ] && pass "overview: desktop none falls back to the shell action" || fail "overview fallback"
+[ "$(d '.resolve|map(if .type == "page" then "page\(.step)" else .id end)|join(" ")')" = "page-1 page1 toggle-overview prev-workspace next-workspace" ] && pass "app grid: prev/next workspace page the grid, others as bound" || fail "resolveAction"
+[ "$(d '.pages|map(tostring)|join(" ")')" = "null 1 1 3 null 3 null null null null null null null" ] && pass "page target: start, middle, end, one page, zero pages, bad input, no wrap" || { fail "pageTarget"; d '.pages|tostring' >&2; }
+[ "$(d '.ws|map(tostring)|join(" ")')" = "null 3 null 0 0 2 null null null null null" ] && pass "workspace target: first, middle, last, one workspace, wrap on and off" || { fail "workspaceTarget"; d '.ws|tostring' >&2; }
+[ "$(d '.log[0]')" = null ] && [ "$(d '.log[1]')" = "desktop-mouse-nav: button=back context=app-grid action=prev-workspace result=at-end" ] && pass "debug line is null when off, one line when on" || fail "debugLine"
+# the only console.debug is behind the flag
+[ "$(grep -c 'console\.' "$ext/extension.js")" = 1 ] && grep -B3 'console\.debug' "$ext/extension.js" | grep -q 'if (line)' && grep -B6 'console\.debug' "$ext/extension.js" | grep -q 'if (this._debug)' && pass "extension.js logs once, behind this._debug and debugLine" || fail "logging is not gated by the flag"
+grep -q "get_boolean('debug-log')" "$ext/extension.js" && grep -q "get_boolean('wrap-workspaces')" "$ext/extension.js" && pass "extension.js caches debug-log and wrap-workspaces" || fail "flags not cached"
+grep -q "settings.get_\|_settings.get_" <(sed -n '/^    _onCapturedEvent(event)/,$p' "$ext/extension.js") && fail "a press reads GSettings" || pass "no GSettings read in the press path"
+grep -qE "anywhere" "$ext/extension.js" "$ext/prefs.js" "$ext/actions.js" "$xml" && fail "anywhere still in the sources" || pass "no 'anywhere' left in the sources"
 
 # overview gate
 g() { d ".gate[\"$1\"]"; }

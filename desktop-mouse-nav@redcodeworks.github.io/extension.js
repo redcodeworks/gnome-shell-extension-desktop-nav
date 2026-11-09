@@ -1,24 +1,30 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Desktop Mouse Nav: the mouse Back/Forward buttons run a configurable action
-// (preferences window), separately for the empty desktop (the background, not a
-// window, not the overview, not a modal dialog) and for anywhere else. Defaults:
-// workspace switching on the desktop, nothing elsewhere.
+// (preferences window): on the empty desktop (also while the overview or the app grid
+// is open, when enabled) and on other Shell surfaces such as the top bar. GNOME never
+// passes presses over application windows to extensions. Defaults: workspace
+// switching on the desktop, nothing on Shell surfaces.
 
 import Clutter from 'gi://Clutter';
 import Meta from 'gi://Meta';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+// Namespace import: a missing export must not stop the extension from loading.
+import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
-import {BUTTONS, CONTEXTS, overviewAllowed, pickAction, settingsKey} from './actions.js';
+import {
+    BUTTONS, CONTEXTS, debugLine, overviewAllowed, pageTarget, pickAction, pointerContext,
+    resolveAction, settingsKey, treatAsDesktop, workspaceTarget,
+} from './actions.js';
 
 // Button numbers as reported by event.get_button() (X11-style numbering:
 // 4-7 are scroll, so the side buttons are 8 and 9). UNVERIFIED on Shell 51.
 const BUTTON_NAMES = new Map([[8, 'back'], [9, 'forward']]);
 
-// Idea, not built yet: a `wrap` setting.
-const WRAP = false;
+// ControlsState.APP_GRID is 2 (UNVERIFIED export, hence the fallback).
+const APP_GRID_STATE = OverviewControls.ControlsState?.APP_GRID ?? 2;
 
 export default class DesktopMouseNav extends Extension {
     enable() {
@@ -42,6 +48,7 @@ export default class DesktopMouseNav extends Extension {
         this._settings = null;
         this._actions = null;
         this._flags = null;
+        this._debug = false;
         this._pressedButton = null;
     }
 
@@ -58,6 +65,8 @@ export default class DesktopMouseNav extends Extension {
             inOverview: this._settings.get_boolean('work-in-overview'),
             inAppGrid: this._settings.get_boolean('work-in-app-grid'),
         };
+        this._wrap = this._settings.get_boolean('wrap-workspaces');
+        this._debug = this._settings.get_boolean('debug-log');
     }
 
     _onCapturedEvent(event) {
@@ -80,32 +89,98 @@ export default class DesktopMouseNav extends Extension {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        // Cheapest checks first: nothing configured for this button, nothing to do.
-        const read = key => this._actions[key];
-        const desktopSet = read(settingsKey('desktop', name)) !== 'none';
-        const anywhereSet = read(settingsKey('anywhere', name)) !== 'none';
-        if (!desktopSet && !anywhereSet)
-            return Clutter.EVENT_PROPAGATE;
-
-        if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible))
-            return Clutter.EVENT_PROPAGATE;
-
-        // Overview gate (UNVERIFIED detector: showAppsButton.checked). Note that
-        // Main.overview.toggle while the overview is open closes it, and the
-        // toggle-app-grid action while the grid is showing is already handled in
-        // _toggleAppGrid; both keep their behavior when the toggle allows it.
-        const overviewVisible = Main.overview.visible;
-        const appGridShowing = overviewVisible && Main.overview.dash.showAppsButton.checked;
-        if (!overviewAllowed({overviewVisible, appGridShowing}, this._flags))
-            return Clutter.EVENT_PROPAGATE;
-
-        const onDesktop = desktopSet && this._pointerOnEmptyDesktop(event);
-        const action = pickAction(read, onDesktop, name);
-        if (action === 'none' || !this._runAction(action))
+        const info = this._handlePress(event, name);
+        // The only log call; nothing is logged unless the setting is on.
+        if (this._debug) {
+            const line = debugLine(this._debug, name, info.context ?? this._contextOf(event),
+                info.action, info.result);
+            if (line)
+                console.debug(line);
+        }
+        if (info.result !== 'ran')
             return Clutter.EVENT_PROPAGATE;
 
         this._pressedButton = button;
         return Clutter.EVENT_STOP;
+    }
+
+    // Decides and runs; returns {context, action, result}, result 'ran', 'propagated'
+    // or 'at-end'. `context` stays null when it was not needed (and logging is off).
+    _handlePress(event, name) {
+        const info = {context: null, action: 'none', result: 'propagated'};
+        const read = key => this._actions[key];
+        const desktopSet = read(settingsKey('desktop', name)) !== 'none';
+        const shellSet = read(settingsKey('shell', name)) !== 'none';
+        // Cheapest checks first: nothing configured for this button, nothing to do.
+        if (!desktopSet && !shellSet)
+            return info;
+
+        if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible))
+            return info;
+
+        const overviewVisible = Main.overview.visible;
+        const appGridShowing = overviewVisible && this._appGridShowing();
+        if (!overviewAllowed({overviewVisible, appGridShowing}, this._flags))
+            return info;
+
+        const context = pointerContext({
+            overviewVisible, appGridShowing,
+            onEmptyDesktop: !overviewVisible && desktopSet && this._pointerOnEmptyDesktop(event),
+        });
+        info.context = context;
+        info.action = pickAction(read, treatAsDesktop(context), name);
+        if (info.action === 'none')
+            return info;
+
+        const todo = resolveAction(info.action, context);
+        try {
+            info.result = todo.type === 'page'
+                ? this._pageAppGrid(todo.step)
+                : this._runAction(todo.id);
+        } catch (e) {
+            info.result = 'propagated';
+        }
+        return info;
+    }
+
+    // Context for a log line when the press returned early (debug only).
+    _contextOf(event) {
+        const overviewVisible = Main.overview.visible;
+        return pointerContext({
+            overviewVisible,
+            appGridShowing: overviewVisible && this._appGridShowing(),
+            onEmptyDesktop: !overviewVisible && this._pointerOnEmptyDesktop(event),
+        });
+    }
+
+    // UNVERIFIED: Main.overview.controls; falls back to the private _overview.
+    _controls() {
+        return Main.overview.controls ?? Main.overview._overview?.controls ?? null;
+    }
+
+    // UNVERIFIED detector: the state adjustment at APP_GRID, else the dash button.
+    _appGridShowing() {
+        try {
+            const adjustment = this._controls()?._stateAdjustment;
+            if (adjustment)
+                return adjustment.value >= APP_GRID_STATE - 0.001;
+            return !!Main.overview.dash?.showAppsButton?.checked;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Pages the app grid; never wraps. UNVERIFIED on a live Shell (private _grid).
+    _pageAppGrid(step) {
+        const appDisplay = this._controls()?.appDisplay;
+        const grid = appDisplay?._grid;
+        if (!appDisplay || !grid || typeof appDisplay.goToPage !== 'function')
+            return 'propagated';
+        const target = pageTarget(grid.currentPage, grid.nPages, step);
+        if (target === null)
+            return 'at-end';
+        appDisplay.goToPage(target);
+        return 'ran';
     }
 
     _pointerOnEmptyDesktop(event) {
@@ -127,7 +202,7 @@ export default class DesktopMouseNav extends Extension {
         return false;
     }
 
-    // Runs one action through the Shell API; returns false when it did nothing.
+    // Runs one action through the Shell API; returns 'ran', 'at-end' or 'propagated'.
     _runAction(action) {
         switch (action) {
         case 'prev-workspace':
@@ -136,58 +211,52 @@ export default class DesktopMouseNav extends Extension {
             return this._switchWorkspace(1);
         case 'toggle-overview':
             Main.overview.toggle();
-            return true;
+            return 'ran';
         case 'toggle-app-grid':
             this._toggleAppGrid();
-            return true;
+            return 'ran';
         case 'move-window-prev-workspace':
             return this._moveFocusedWindow(-1);
         case 'move-window-next-workspace':
             return this._moveFocusedWindow(1);
         default:
-            return false;
+            return 'propagated';
         }
     }
 
     _toggleAppGrid() {
-        if (Main.overview.visible && Main.overview.dash.showAppsButton.checked)
+        if (Main.overview.visible && this._appGridShowing())
             Main.overview.hide();
         else
             Main.overview.showApps();
     }
 
-    // The workspace `step` away from the active one, or null at the ends.
+    // The workspace `step` away from the active one, or null (ends, or one workspace).
     _neighborWorkspace(step) {
         const manager = global.workspace_manager;
-        const count = manager.get_n_workspaces();
-        let index = manager.get_active_workspace_index() + step;
-
-        if (WRAP)
-            index = (index + count) % count;
-        else if (index < 0 || index >= count)
-            return null;
-
-        return manager.get_workspace_by_index(index);
+        const index = workspaceTarget(manager.get_active_workspace_index(),
+            manager.get_n_workspaces(), step, this._wrap);
+        return index === null ? null : manager.get_workspace_by_index(index);
     }
 
     _switchWorkspace(step) {
         const workspace = this._neighborWorkspace(step);
         if (!workspace)
-            return false;
+            return 'at-end';
         workspace.activate(global.get_current_time());
-        return true;
+        return 'ran';
     }
 
     _moveFocusedWindow(step) {
         const window = global.display.focus_window;
         if (!window || window.get_window_type() !== Meta.WindowType.NORMAL ||
             window.is_on_all_workspaces())
-            return false;
+            return 'propagated';
         const workspace = this._neighborWorkspace(step);
         if (!workspace)
-            return false;
+            return 'at-end';
         window.change_workspace(workspace);
         workspace.activate_with_focus(window, global.get_current_time());
-        return true;
+        return 'ran';
     }
 }

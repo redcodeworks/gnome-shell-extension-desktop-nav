@@ -8,16 +8,16 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {ACTIONS, BUTTONS, CONTEXTS, OVERVIEW_SWITCHES, settingsKey} from './actions.js';
+import {ACTIONS, ADVANCED_SWITCHES, BUTTONS, CONTEXTS, OVERVIEW_SWITCHES, WORKSPACE_SWITCHES, settingsKey} from './actions.js';
 
 const CONTEXT_TEXT = {
     desktop: {
         title: 'On the empty desktop',
-        description: 'Used when the pointer is over the desktop background. "Do nothing" here falls back to the anywhere setting.',
+        description: 'Used when the pointer is over the desktop background, and in the overview and the app grid (when enabled below). "Do nothing" here falls back to the Shell setting.',
     },
-    anywhere: {
-        title: 'Anywhere else',
-        description: 'Used over windows, panels and the overview. Leave on "Do nothing" to keep the buttons for applications.',
+    shell: {
+        title: 'Top bar and shell surfaces',
+        description: 'Used when the pointer is over Shell surfaces such as the top bar. GNOME never passes mouse buttons pressed over application windows to extensions, so nothing can be set for windows.',
     },
 };
 
@@ -63,16 +63,20 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
             page.add(group);
         }
 
-        const overview = new Adw.PreferencesGroup({
-            title: 'Overview',
-            description: 'By default the buttons do nothing while the overview or the app grid is open.',
-        });
-        for (const [key, title, subtitle] of OVERVIEW_SWITCHES) {
-            const row = new Adw.SwitchRow({title, subtitle});
-            settings.bind(key, row, 'active', Gio.SettingsBindFlags.DEFAULT);
-            overview.add(row);
-        }
-        page.add(overview);
+        const addSwitches = (title, description, switches) => {
+            const group = new Adw.PreferencesGroup({title, description});
+            for (const [key, rowTitle, subtitle] of switches) {
+                const row = new Adw.SwitchRow({title: rowTitle, subtitle});
+                settings.bind(key, row, 'active', Gio.SettingsBindFlags.DEFAULT);
+                group.add(row);
+            }
+            page.add(group);
+        };
+        addSwitches('Overview',
+            'By default the buttons do nothing while the overview or the app grid is open. There the desktop setting applies; in the app grid previous and next workspace turn the pages.',
+            OVERVIEW_SWITCHES);
+        addSwitches('Workspaces', null, WORKSPACE_SWITCHES);
+        addSwitches('Advanced', null, ADVANCED_SWITCHES);
 
         // Keep the settings object alive as long as the window (gjs.guide pattern).
         window._settings = settings;
