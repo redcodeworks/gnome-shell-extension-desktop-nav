@@ -5,16 +5,24 @@ A GNOME Shell extension: press the mouse Back or Forward button while the pointe
 ## Requirements
 
 - GNOME Shell 51 (Wayland)
+- For the install commands: [`just`](https://github.com/casey/just), `unzip`, and (for `just install-release`) the GitHub CLI `gh`
 
-## Install and usage
+## Install
 
-Run `just install`, log out and back in (needed on Wayland), then run `just enable`. `just uninstall` removes it again.
+Pick one:
 
-Usage: with no window under the pointer, Back goes to the previous workspace and Forward to the next one. It stops at the first and last workspace (no wrap-around).
+- From a release (no build tools needed): `just install-release` installs the latest release, `just install-release 0.1.0` a specific one. It verifies the checksum first; `--dry-run` shows what it would do. You can also download the zip from the Releases page and unpack it into `~/.local/share/gnome-shell/extensions/desktop-mouse-nav@redcodeworks.github.io/`.
+- From source: `just install` builds the zip and unpacks it into the extensions directory (needs `gnome-extensions`).
+
+On Wayland, log out and back in after the first install, then run `just enable`. `just uninstall` removes it again.
+
+## Usage
+
+With no window under the pointer, Back goes to the previous workspace and Forward to the next one. It stops at the first and last workspace (no wrap-around).
 
 ## Contributing
 
-This is a private repository for now. Changes go through pull requests from the `testing` branch into `main`; run `just lint` first.
+Changes go through pull requests from the `testing` branch into `main`; run `just test` first. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.1.1`).
 
 ## License
 

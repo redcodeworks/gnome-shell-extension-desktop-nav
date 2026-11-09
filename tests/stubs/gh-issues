@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Stub gh for the version-watch tests: issue list/create and label list/create.
+echo "gh $*" >> "${STUB_LOG:-/dev/null}"
+case "$1 $2" in
+    "issue list")
+        case " $* " in
+            *" --label "*) cat "${STUB_LABEL_ISSUES:-/dev/null}" 2>/dev/null || echo '[]' ;;
+            *) cat "${STUB_TITLE_ISSUES:-/dev/null}" 2>/dev/null || echo '[]' ;;
+        esac ;;
+    "issue create")
+        while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "${STUB_BODY:?}"; [ "$1" = --title ] && echo "$2" > "${STUB_TITLE:?}"; shift; done ;;
+    "label list") echo "${STUB_LABELS:-[]}" ;;
+    "label create") echo created > "${STUB_LABEL_CREATED:?}" ;;
+    *) echo "stub gh: unhandled $*" >&2; exit 99 ;;
+esac

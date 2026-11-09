@@ -1,0 +1,66 @@
+name: prepare-ego
+
+# Manual only. Builds the zip from a ref and runs the EGO pre-flight. Uploads nothing
+# to extensions.gnome.org (no documented upload API; no credentials are stored here).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        default: main
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  EXT: desktop-mouse-nav@redcodeworks.github.io
+
+jobs:
+  prepare:
+    runs-on: ubuntu-26.04
+    container: fedora:45
+    steps:
+      - name: Install tools
+        run: dnf install -y --setopt=install_weak_deps=False git gnome-shell just unzip jq
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Let git read the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Pack
+        run: just pack
+      - name: Pre-flight
+        id: pf
+        run: |
+          ver=$(jq -r '.["version-name"] // "unversioned"' "$EXT/metadata.json")
+          [[ $ver =~ ^[0-9A-Za-z.\ ]{1,16}$ ]] || ver=invalid
+          mkdir -p ego
+          cp "dist/$EXT.shell-extension.zip" "ego/ego-${ver// /_}.zip"
+          ( cd ego && sha256sum "ego-${ver// /_}.zip" > "ego-${ver// /_}.zip.sha256" )
+          rc=0
+          scripts/ego-preflight.sh "ego/ego-${ver// /_}.zip" --repo-url "https://github.com/$GITHUB_REPOSITORY" --license-dir . --report ego/preflight.md || rc=$?
+          {
+            cat ego/preflight.md
+            echo
+            echo "zip sha256: \`$(cut -d' ' -f1 "ego/ego-${ver// /_}.zip.sha256")\`"
+            echo
+            cat scripts/ego-manual-steps.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -eq 0 ] || rm -f "ego/ego-${ver// /_}.zip" "ego/ego-${ver// /_}.zip.sha256"
+          exit "$rc"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: success()
+        with:
+          name: ego-zip
+          path: |
+            ego/*.zip
+            ego/*.zip.sha256
+            ego/preflight.md
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: ego-preflight-report
+          path: ego/preflight.md
+          if-no-files-found: ignore

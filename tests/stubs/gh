@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Stub gh for the promote tests. Behavior is set by STUB_* environment variables.
+echo "gh $*" >> "${STUB_LOG:-/dev/null}"
+case "$1 $2" in
+    "api repos/"*)
+        case $2 in
+            */git/ref/tags/*)
+                if [ "${STUB_TAG_ERROR:-0}" = 1 ]; then echo "gh: Server Error (HTTP 500)" >&2; exit 1; fi
+                if [ "${STUB_TAG_EXISTS:-0}" = 1 ]; then echo '{}'; exit 0; fi
+                echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+            */actions/artifacts\?*) cat "$STUB_ARTIFACTS" ;;
+            */actions/runs/*) echo "${STUB_CONCLUSION:-success}" ;;
+            *) echo "stub gh: unhandled $*" >&2; exit 99 ;;
+        esac ;;
+    "run download")
+        while [ $# -gt 0 ]; do [ "$1" = -D ] && dest=$2; shift; done
+        cp -r "$STUB_ARTIFACT_DIR"/. "$dest" ;;
+    *) echo "stub gh: unhandled $*" >&2; exit 99 ;;
+esac

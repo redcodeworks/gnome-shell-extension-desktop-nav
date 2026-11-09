@@ -1,0 +1,29 @@
+name: gnome-version-watch
+
+# Weekly: is the GNOME Shell major in Fedora's upcoming release newer than the
+# majors in metadata.json? If so, open one issue (deduplicated). Publishes nothing.
+on:
+  schedule:
+    - cron: '23 6 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-26.04
+    container: fedora:latest
+    permissions:
+      contents: read
+      issues: write   # open the "Support GNOME Shell N" issue
+    steps:
+      - name: Install tools
+        run: dnf install -y --setopt=install_weak_deps=False git gh jq fedora-repos-rawhide
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check Fedora's gnome-shell against metadata.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          METADATA: desktop-mouse-nav@redcodeworks.github.io/metadata.json
+        run: scripts/gnome-version-watch.sh

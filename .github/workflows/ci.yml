@@ -1,5 +1,7 @@
 name: ci
 
+# One run per push to testing. The built zip is uploaded once and promoted (never
+# rebuilt) when the same tree reaches main. Required checks on main: test, secrets.
 on:
   push:
     branches: [testing]
@@ -7,24 +9,63 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXT: desktop-mouse-nav@redcodeworks.github.io
+
 jobs:
   test:
     runs-on: ubuntu-26.04
     container: fedora:45
     steps:
       - name: Install tools
-        run: dnf install -y --setopt=install_weak_deps=False git nodejs gnome-shell
+        run: dnf install -y --setopt=install_weak_deps=False git nodejs gnome-shell just unzip zip jq glib2-devel python3-pyyaml
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install tools for just
-        run: dnf install -y --setopt=install_weak_deps=False just unzip
-      - name: Install and uninstall in a temp dir
+      - name: Let git read the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Lint, install test, script tests
         run: just test
-      - name: JSON validity
-        run: node -e 'JSON.parse(require("fs").readFileSync("desktop-mouse-nav@redcodeworks.github.io/metadata.json","utf8"))'
-      - name: JS syntax
+      - name: Compile the schema, if there is one
         run: |
-          d=$(mktemp -d)
-          cp desktop-mouse-nav@redcodeworks.github.io/extension.js "$d/extension.mjs"
-          node --check "$d/extension.mjs"
+          if ls "$EXT"/schemas/*.gschema.xml >/dev/null 2>&1; then
+            glib-compile-schemas --strict --dry-run "$EXT/schemas"
+            echo "schema compiles"
+          else
+            echo "no schema, skipping"
+          fi
       - name: Pack
-        run: mkdir -p dist && gnome-extensions pack --force --out-dir dist desktop-mouse-nav@redcodeworks.github.io
+        run: just pack
+      - name: Write the manifest
+        id: manifest
+        run: |
+          scripts/make-manifest.sh "$EXT" "dist/$EXT.shell-extension.zip" dist/manifest.json
+          cat dist/manifest.json
+          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension-${{ steps.manifest.outputs.tree }}
+          path: |
+            dist/*.shell-extension.zip
+            dist/manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+  secrets:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks (pinned, checksum verified)
+        run: |
+          v=8.30.1
+          f=gitleaks_${v}_linux_x64.tar.gz
+          curl --fail --silent --show-error --location --retry 5 --retry-delay 5 --retry-all-errors -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v$v/$f"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/$f" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/gitleaks" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/gitleaks" gitleaks
+      - name: Scan the history
+        run: |
+          "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner .

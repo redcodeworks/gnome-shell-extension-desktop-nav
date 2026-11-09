@@ -7,31 +7,34 @@ extdir := env_var_or_default("GNOME_EXTENSIONS_DIR", env_var("HOME") + "/.local/
 default:
     @just --list
 
-# Quick checks: JSON validity and JS syntax (extension.js is ESM, checked as a .mjs copy).
+# Check metadata.json is valid JSON and extension.js parses (as an ES module).
+[group('development')]
 lint:
     node -e 'JSON.parse(require("fs").readFileSync("{{uuid}}/metadata.json","utf8"))'
     d=$(mktemp -d) && cp {{uuid}}/extension.js "$d/extension.mjs" && node --check "$d/extension.mjs"; rc=$?; rm -rf "$d"; exit $rc
 
-# Build the installable zip into dist/ (gnome-extensions pack segfaults if the directory is missing).
+# Build the installable zip into dist/ (creates the directory first).
+[group('development')]
 pack:
     mkdir -p dist
     gnome-extensions pack --force --out-dir dist {{uuid}}
 
-# Unpack the zip into the extensions directory, replacing the previous copy of this uuid only.
+# Build the zip and unpack it into the extensions directory (replaces this uuid only).
+[group('extension')]
 install: pack
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v unzip >/dev/null || { echo "error: unzip is not installed" >&2; exit 1; }
-    meta=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync("{{uuid}}/metadata.json","utf8")).uuid)')
-    [ "$meta" = "{{uuid}}" ] || { echo "error: metadata.json uuid ($meta) does not match the justfile ({{uuid}})" >&2; exit 1; }
-    target="{{extdir}}/{{uuid}}"
-    mkdir -p "{{extdir}}"
-    rm -rf -- "$target"
-    unzip -q "dist/{{uuid}}.shell-extension.zip" -d "$target"
-    echo "Installed to $target"
-    echo "On Wayland, log out and in first, then run: just enable"
+    scripts/install-zip.sh "dist/{{uuid}}.shell-extension.zip" "{{extdir}}" "{{uuid}}"
 
-# Enable the extension (it must be known to the Shell, which needs a log out and in after the first install).
+# Install a released zip (latest or a version), checksum verified; --dry-run installs nothing.
+[group('extension')]
+[positional-arguments]
+install-release *args:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    export UUID="{{uuid}}" GNOME_EXTENSIONS_DIR="{{extdir}}"
+    exec scripts/install-release.sh "$@"
+
+# Enable the extension (log out and in once after the first install).
+[group('extension')]
 enable:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -42,6 +45,7 @@ enable:
     gnome-extensions enable "{{uuid}}"
 
 # Disable (if known) and remove this uuid's directory.
+[group('extension')]
 uninstall:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -50,13 +54,15 @@ uninstall:
     fi
     rm -rf -- "{{extdir}}/{{uuid}}"
     echo "Removed {{extdir}}/{{uuid}}. Undo with: just install"
-
+# Show what the Shell knows and whether the extension directory exists.
+[group('extension')]
 status:
     #!/usr/bin/env bash
     gnome-extensions info "{{uuid}}" || echo "not known to the Shell"
     if [ -d "{{extdir}}/{{uuid}}" ]; then echo "directory: {{extdir}}/{{uuid}} (exists)"; else echo "directory: {{extdir}}/{{uuid}} (missing)"; fi
 
-# Install into a temp directory and uninstall again (no gnome-extensions enable/disable, real home untouched).
+# Lint, temp-dir install and uninstall, and the script tests (real home untouched).
+[group('development')]
 test: lint
     #!/usr/bin/env bash
     set -euo pipefail
@@ -70,3 +76,9 @@ test: lint
     just uninstall
     [ ! -e "$tmp/{{uuid}}" ] || { echo "FAIL: directory still there after uninstall" >&2; exit 1; }
     echo "install/uninstall test OK"
+    rc=0
+    for t in tests/test-*.sh; do
+        echo "== $t"
+        bash "$t" || rc=1
+    done
+    exit $rc
