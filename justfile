@@ -7,17 +7,17 @@ extdir := env_var_or_default("GNOME_EXTENSIONS_DIR", env_var("HOME") + "/.local/
 default:
     @just --list
 
-# Check metadata.json is valid JSON and extension.js parses (as an ES module).
+# Check metadata.json is valid JSON and every .js file parses (as an ES module).
 [group('development')]
 lint:
     node -e 'JSON.parse(require("fs").readFileSync("{{uuid}}/metadata.json","utf8"))'
-    d=$(mktemp -d) && cp {{uuid}}/extension.js "$d/extension.mjs" && node --check "$d/extension.mjs"; rc=$?; rm -rf "$d"; exit $rc
+    d=$(mktemp -d); rc=0; for f in {{uuid}}/*.js; do cp "$f" "$d/$(basename "$f" .js).mjs" && node --check "$d/$(basename "$f" .js).mjs" || rc=1; done; rm -rf "$d"; exit $rc
 
-# Build the installable zip into dist/ (creates the directory first; LICENSE goes into the zip root).
+# Build the installable zip into dist/ (creates the directory first; LICENSE, actions.js and the schema XML go in; no compiled schema).
 [group('development')]
 pack:
     mkdir -p dist
-    gnome-extensions pack --force --out-dir dist --extra-source={{justfile_directory()}}/LICENSE {{uuid}}
+    gnome-extensions pack --force --out-dir dist --extra-source={{justfile_directory()}}/LICENSE --extra-source=actions.js --schema=schemas/org.gnome.shell.extensions.desktop-mouse-nav.gschema.xml {{uuid}}
 
 # Build the zip and unpack it into the extensions directory (replaces this uuid only).
 [group('extension')]
@@ -69,7 +69,7 @@ test: lint
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     export GNOME_EXTENSIONS_DIR="$tmp" SKIP_GNOME_EXTENSIONS=1
     just install
-    for f in metadata.json extension.js; do
+    for f in metadata.json extension.js prefs.js actions.js schemas/org.gnome.shell.extensions.desktop-mouse-nav.gschema.xml; do
         [ -f "$tmp/{{uuid}}/$f" ] || { echo "FAIL: $f missing after install" >&2; exit 1; }
     done
     just install   # reinstall replaces the old copy

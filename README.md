@@ -1,6 +1,6 @@
 # Desktop Mouse Nav
 
-A GNOME Shell extension: press the mouse Back or Forward button while the pointer is over the empty desktop to move to the previous or next workspace. Windows, games and the overview keep their own Back and Forward behavior.
+A GNOME Shell extension: choose what the mouse Back and Forward buttons do. By default, pressing one while the pointer is over the empty desktop moves to the previous or next workspace, and windows, games and the overview keep their own Back and Forward behavior.
 
 ## Requirements
 
@@ -18,11 +18,13 @@ On Wayland, log out and back in after the first install, then run `just enable`.
 
 ## Usage
 
-With no window under the pointer, Back goes to the previous workspace and Forward to the next one. It stops at the first and last workspace (no wrap-around).
+By default, with no window under the pointer, Back goes to the previous workspace and Forward to the next one (it stops at the first and last workspace).
+
+Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app) to pick an action for each button in two places: on the empty desktop, and anywhere else. Anywhere else defaults to "Do nothing", so applications keep their buttons until you choose otherwise. Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing. If the desktop setting is "Do nothing", the anywhere setting applies on the desktop too.
 
 ## Contributing
 
-Changes go through pull requests from the `testing` branch into `main`; run `just test` first. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.1.1`).
+Changes go through pull requests from the `testing` branch into `main`; run `just test` first. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.2.0`).
 
 ## License
 

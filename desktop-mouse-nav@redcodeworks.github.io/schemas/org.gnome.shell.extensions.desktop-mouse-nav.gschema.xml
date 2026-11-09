@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.desktop-mouse-nav" path="/org/gnome/shell/extensions/desktop-mouse-nav/">
+    <key name="desktop-back" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'prev-workspace'</default>
+      <summary>Action for the back button (desktop)</summary>
+      <description>Used when the pointer is on the empty desktop. 'none' falls back to the anywhere action.</description>
+    </key>
+    <key name="desktop-forward" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'next-workspace'</default>
+      <summary>Action for the forward button (desktop)</summary>
+      <description>Used when the pointer is on the empty desktop. 'none' falls back to the anywhere action.</description>
+    </key>
+    <key name="anywhere-back" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'none'</default>
+      <summary>Action for the back button (anywhere)</summary>
+      <description>Used when the pointer is anywhere (a window, a panel, the overview). 'none' leaves the button to the application.</description>
+    </key>
+    <key name="anywhere-forward" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'none'</default>
+      <summary>Action for the forward button (anywhere)</summary>
+      <description>Used when the pointer is anywhere (a window, a panel, the overview). 'none' leaves the button to the application.</description>
+    </key>
+  </schema>
+</schemalist>

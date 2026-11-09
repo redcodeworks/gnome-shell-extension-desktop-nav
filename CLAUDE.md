@@ -1,22 +1,29 @@
 # CLAUDE.md
 
-GNOME Shell extension `desktop-mouse-nav@redcodeworks.github.io` (GPL-2.0-or-later, public repo `redcodeworks/gnome-shell-extension-desktop-nav`; the local directory keeps the old name `desktop-mouse-nav`). Target: GNOME Shell 51 (Fedora 45, Wayland). Mouse Back/Forward (buttons 8/9) switch workspaces only when the pointer is over the empty desktop.
+GNOME Shell extension `desktop-mouse-nav@redcodeworks.github.io` (GPL-2.0-or-later, public repo `redcodeworks/gnome-shell-extension-desktop-nav`; the local directory keeps the old name `desktop-mouse-nav`). Target: GNOME Shell 51 (Fedora 45, Wayland). Mouse Back/Forward (buttons 8/9) run a configurable action (preferences window), per context: `desktop` (pointer on the empty desktop, default prev/next workspace) and `anywhere` (default none).
 
 ## Layout
-Subdirectory layout: the extension lives in `desktop-mouse-nav@redcodeworks.github.io/` (`extension.js`, `metadata.json`) so the repo root can hold LICENSE, README, justfile, CI. `gnome-extensions pack <dir>` accepts a source directory, so no flat layout is needed.
+Subdirectory layout: the extension lives in `desktop-mouse-nav@redcodeworks.github.io/` (`extension.js`, `prefs.js`, `actions.js`, `metadata.json`, `schemas/*.gschema.xml`) so the repo root can hold LICENSE, README, justfile, CI. `gnome-extensions pack <dir>` accepts a source directory, so no flat layout is needed.
 
 ## Design
-- ESM; `extension.js` default-exports a class extending `Extension`.
-- `enable()` connects `global.stage` `captured-event`; `disable()` disconnects it (no timers, no other state).
-- Press of button 8 (Back) or 9 (Forward): act only if overview is closed, no modal is open, session is not locked, and `get_actor_at_pos(REACTIVE)` at the pointer is a `Meta.BackgroundActor` or inside `Main.layoutManager._backgroundGroup`. Handled press returns `EVENT_STOP` and remembers the button so the matching release is swallowed too; everything else returns `EVENT_PROPAGATE`.
-- Switching: index arithmetic on `global.workspace_manager`, `workspace.activate(global.get_current_time())`. `WRAP` and `SWAP_BUTTONS` are constants (false) marking where future settings go.
-- Logging: `console.debug` with the `desktop-mouse-nav:` prefix.
+- ESM; `extension.js` default-exports a class extending `Extension`; `prefs.js` a class extending `ExtensionPreferences` (libadwaita: one `Adw.PreferencesPage`, a group per context, a `Adw.ComboRow` per button bound with `settings.bind_with_mapping`, so prefs.js connects no signals).
+- `actions.js` is the single source of truth (no imports, so node can run it in tests): schema id, `BUTTONS`, `CONTEXTS`, `ACTIONS` (id + label), `settingsKey(context, button)` = `<context>-<button>`, `pickAction(read, onDesktop, button)`. Both extension.js and prefs.js import it; the pre-flight WARNs about the extra JS module (fine, it is imported).
+- Schema `org.gnome.shell.extensions.desktop-mouse-nav` (`metadata.json` `settings-schema`), string keys with `<choices>` = action ids: `desktop-back` (default `prev-workspace`), `desktop-forward` (`next-workspace`), `anywhere-back` and `anywhere-forward` (`none`). The zip ships the XML only, never `gschemas.compiled` (`just pack` passes `--schema=schemas/...xml` and `--extra-source=actions.js`; verified that the zip then holds no compiled schema).
+- Actions, Shell API only (no key synthesis, no processes): `prev-workspace`, `next-workspace` (`workspace.activate`), `toggle-overview` (`Main.overview.toggle()`), `toggle-app-grid` (`Main.overview.showApps()`, hide when the app grid is already showing), `move-window-prev-workspace`/`-next-workspace` (focused NORMAL window not on all workspaces: `window.change_workspace`, then `workspace.activate_with_focus`), `none`. Workspace moves stop at the ends (no wrap, `WRAP` constant).
+- Precedence: on the empty desktop the desktop action wins unless it is `none`, then the anywhere action applies; elsewhere only the anywhere action. Unknown ids count as `none`.
+- `enable()` gets the settings, caches all four actions (reloaded on the settings `changed` signal) and connects `global.stage` `captured-event`; `disable()` disconnects both and drops the references. No timers.
+- Press handler cost: map button 8/9 to back/forward (anything else propagates at once), read the cached actions, propagate when both contexts are `none` (before any actor lookup), propagate when locked or a modal other than the overview is open, only then (desktop action set) run `get_actor_at_pos(REACTIVE)`; the background check is a `Meta.BackgroundActor` or inside `Main.layoutManager._backgroundGroup`, never while the overview is visible. The press is consumed (`EVENT_STOP`) only when an action ran, and the matching release is swallowed; everything else returns `EVENT_PROPAGATE`.
+- Logging: none (no `console.log`, nothing in the event handler).
+
+## Versioning (Kevin, 2026-11-09)
+Semantic versioning in `version-name`, 0.x until the extension is actually published on extensions.gnome.org. Never propose 1.0.0 before publishing. After publishing, a major bump happens whenever the extension is updated to cover a new GNOME Shell version. A new feature is a minor bump (the settings feature is 0.2.0), a fix a patch bump. `promote` releases only a `version-name` whose tag does not exist yet.
 
 ## Ideas, not built
-- `wrap` setting (wrap around at the ends), `swap buttons` setting, a GSettings schema and prefs page.
+- `wrap` setting (wrap around at the ends), more actions.
 
 ## Unverified (no live Shell was available when this was written)
 Everything about runtime behavior, in particular:
+- The 0.2.0 settings feature: the prefs window has never been rendered; `ExtensionPreferences` import path `resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js`, `Gio.Settings.bind_with_mapping` in GJS, `Main.overview.showApps()`, `Main.overview.dash.showAppsButton.checked`, `Meta.Window.change_workspace`, `Meta.Workspace.activate_with_focus`, `is_on_all_workspaces`, and whether `Main.modalCount` is above 0 while the overview is open (the handler allows the overview explicitly).
 - Button numbers 8 and 9 for Back/Forward on Shell 51 (from memory of Mutter's evdev mapping, BTN_SIDE/BTN_EXTRA).
 - That `get_actor_at_pos(REACTIVE)` returns the background actor (reactive because of the desktop context menu) on the empty desktop in Shell 51, and that `Meta.BackgroundActor` is still the class used.
 - `Main.modalCount`, `Main.sessionMode.isLocked`, `Main.layoutManager._backgroundGroup` (private) still exist in 51.
@@ -50,10 +57,10 @@ Design (written 2026-11-09, NONE of it has run on GitHub yet when this was writt
 - Settings required in the GitHub repository (Kevin): branch protection on `main` requiring `test` and `secrets`; Actions allowed to create releases and issues (workflow permissions).
 
 ## Tests
-`just test` runs `tests/test-*.sh` after the temp-dir install: `test-promote` (git temp repo + stub `gh`: tree match, squash-style same tree, checksum mismatch, tag exists, no build, version rules), `test-preflight` (fixtures built from the real extension: version field, extra files, minified line, missed disconnect, deprecated module, constructor/module-load work, metadata rules), `test-pack` (`just pack` zip holds exactly LICENSE, extension.js, metadata.json), `test-version-watch` (stub `dnf` and `gh`: 51.1 listed, 52.alpha, 52~beta, 52~alpha.1, rawhide repo id from a .repo file, branched beats rawhide, no beta yet, nothing found, hostile version string, dedupe), `test-install-release` (stub `gh`, temp extensions dir), `test-workflows` (YAML parse, SHA pins with version comments, pinned runners, triggers, least-privilege permissions, the Shexli step is optional/pinned/report-only). Stubs live in `tests/stubs/`. Needs `zip`, `jq`, `unzip`; PyYAML for the workflow test (it skips without it).
+`just test` runs `tests/test-*.sh` after the temp-dir install: `test-promote` (git temp repo + stub `gh`: tree match, squash-style same tree, checksum mismatch, tag exists, no build, version rules), `test-preflight` (fixtures built from the real extension: version field, extra files, minified line, missed disconnect, deprecated module, constructor/module-load work, metadata rules), `test-pack` (`just pack` zip holds exactly LICENSE, actions.js, extension.js, metadata.json, prefs.js and the schema XML), `test-settings` (schema compiles strict, defaults, keys and choices equal actions.js, button x context -> action via node, extension.js handles every id, prefs.js duplicates none), `test-version-watch` (stub `dnf` and `gh`: 51.1 listed, 52.alpha, 52~beta, 52~alpha.1, rawhide repo id from a .repo file, branched beats rawhide, no beta yet, nothing found, hostile version string, dedupe), `test-install-release` (stub `gh`, temp extensions dir), `test-workflows` (YAML parse, SHA pins with version comments, pinned runners, triggers, least-privilege permissions, the Shexli step is optional/pinned/report-only). Stubs live in `tests/stubs/`. Needs `zip`, `jq`, `unzip`; PyYAML for the workflow test (it skips without it).
 
 ## UUID
-`desktop-mouse-nav@redcodeworks.github.io` stays. Renaming the repo does not change it; changing the UUID would make a different extension for the Shell and for EGO (settings, enabled state). A decision for Kevin when the settings feature lands.
+`desktop-mouse-nav@redcodeworks.github.io` stays. Renaming the repo does not change it; changing the UUID would make a different extension for the Shell and for EGO (settings, enabled state). The settings feature landed in 0.2.0 without a UUID change.
 
 ## Why install unpacks the zip
 `gnome-extensions install --force <zip>` failed for Kevin with "Can't recursively copy directory". Probable cause (UNVERIFIED guess): a cross-filesystem move from the temp dir into `~/.local/share/gnome-shell/extensions`. Unpacking the zip directly into the extensions directory avoids it. `SKIP_GNOME_EXTENSIONS=1` makes `uninstall` skip gnome-extensions calls (used by `just test` so a real install of the same uuid is never disabled).

@@ -7,7 +7,7 @@ pf() { "$root/scripts/ego-preflight.sh" "$1" --repo-url "$url" --license-dir "$r
 
 mk() { # NAME : fresh fixture dir seeded from the real extension
     rm -rf "$tmp/f-$1"; mkdir -p "$tmp/f-$1"
-    cp "$root/$uuid/extension.js" "$root/$uuid/metadata.json" "$tmp/f-$1/"
+    cp -r "$root/$uuid/." "$tmp/f-$1/"
     echo "$tmp/f-$1"
 }
 zipit() { rm -f "$tmp/$1.zip"; make_zip "$tmp/f-$1" "$tmp/$1.zip"; }
@@ -93,7 +93,7 @@ mk lic >/dev/null; cp "$root/LICENSE" "$tmp/f-lic/LICENSE"; zipit lic
 expect_rc 0 "LICENSE in the zip passes" pf "$tmp/lic.zip"; expect_out 'PASS \| files \| license file in the zip' "license in zip noted"
 expect_rc 0 "no LICENSE in the zip is only a warning" pf "$tmp/good.zip"; expect_out 'no LICENSE file in the zip: not stated in the guidelines \(unverified\)' "missing license warning"
 
-mk dbg >/dev/null; zipit dbg
+mk dbg >/dev/null; echo "console.debug('x');" >> "$tmp/f-dbg/extension.js"; zipit dbg
 expect_rc 0 "console.debug is only a warning" pf "$tmp/dbg.zip"; expect_out 'WARN \| code' "debug warning shown"
 
 expect_rc 1 "license missing fails" "$root/scripts/ego-preflight.sh" "$tmp/good.zip" --repo-url "$url" --license-dir "$tmp"
