@@ -21,7 +21,7 @@ Everything about runtime behavior, in particular:
 - That `get_actor_at_pos(REACTIVE)` returns the background actor (reactive because of the desktop context menu) on the empty desktop in Shell 51, and that `Meta.BackgroundActor` is still the class used.
 - `Main.modalCount`, `Main.sessionMode.isLocked`, `Main.layoutManager._backgroundGroup` (private) still exist in 51.
 - Whether the click reaches the stage at all with Dash to Dock, Tiling Shell, desktop-icon extensions (those add windows or chrome over the desktop, which then count as "not the desktop").
-- `gnome-extensions pack` segfaulted when run on the dev host from the agent session (signal 11); CI's Fedora 45 container is the real packaging check. Whether the `fedora:45` container image and `ubuntu-26.04` runner are available is checked by the first CI run.
+- `gnome-extensions pack --out-dir` segfaults (signal 11, exit 139) when the output directory does not exist: `just pack` and CI create `dist/` first. CI on the `fedora:45` container and `ubuntu-26.04` runner worked for the other steps.
 
 ## Testing
 ```

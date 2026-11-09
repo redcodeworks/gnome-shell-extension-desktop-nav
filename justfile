@@ -10,6 +10,7 @@ lint:
 
 # Build the installable zip into dist/.
 pack:
+    mkdir -p dist
     gnome-extensions pack --force --out-dir dist {{uuid}}
 
 # Print the install commands (does not touch your home).
