@@ -1,18 +1,23 @@
 name: ci
 
-# One run per push to testing. The built zip is uploaded once and promoted (never
-# rebuilt) when the same tree reaches main. Required checks on main: test, secrets.
+# Two kinds of run. A push to testing is the real build: the zip is uploaded once and
+# promoted (never rebuilt) when the same tree reaches main. A pull request into testing
+# is a validation run only (the dev environment): test and secrets, nothing uploaded,
+# nothing published. A push to any other branch triggers nothing.
+# Required checks: test, secrets.
 # After both pass, publish-testing republishes the same zip as the rolling `testing`
 # prerelease (the tag is `testing`, never `v*`), so `just install --testing` can fetch it.
 on:
   push:
+    branches: [testing]
+  pull_request:
     branches: [testing]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -48,7 +53,9 @@ jobs:
           scripts/make-manifest.sh "$EXT" "dist/$EXT.shell-extension.zip" dist/manifest.json
           cat dist/manifest.json
           echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload the build (push to testing only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: extension-${{ steps.manifest.outputs.tree }}
           path: |
@@ -76,7 +83,7 @@ jobs:
 
   publish-testing:
     needs: [test, secrets]
-    if: github.ref == 'refs/heads/testing'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
     runs-on: ubuntu-26.04
     permissions:
       contents: write   # create and replace the `testing` prerelease and its tag

@@ -38,7 +38,7 @@ Switches:
 
 ## Contributing
 
-Changes go through pull requests from the `testing` branch into `main`; run `just test` first. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.2.0`).
+Work happens on a branch (`feat/<topic>`, `fix/<topic>`) that goes by pull request into `testing`, and a pull request promotes `testing` to `main`. Maintainer notes are in `CLAUDE.md`. Run `just test` first. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.2.0`).
 
 ## License
 
