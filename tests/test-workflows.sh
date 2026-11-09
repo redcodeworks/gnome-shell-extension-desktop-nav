@@ -17,7 +17,9 @@ for f in files:
     txt = open(f).read()
     y = yaml.safe_load(txt); docs[f.rsplit("/", 1)[1]] = y
     on = y.get(True, y.get("on"))
-    if "pull_request" in (on if isinstance(on, dict) else {}) or "pull_request_target" in (on if isinstance(on, dict) else {}):
+    ond = on if isinstance(on, dict) else {}
+    if "pull_request_target" in ond: err(f + ": has a pull_request_target trigger")
+    if "pull_request" in ond and not f.endswith(("/ci.yml", "/require-testing-branch.yml")):
         err(f + ": has a pull_request trigger")
     for i, line in enumerate(txt.splitlines(), 1):
         m = re.match(r"\s*-?\s*uses:\s*(\S+)(.*)", line)
@@ -33,6 +35,22 @@ for name in ("test", "secrets"):
     elif ci["jobs"][name].get("name", name) != name: err("ci.yml job %s has a different display name" % name)
 on = ci.get(True, ci.get("on"))
 if on.get("push", {}).get("branches") != ["testing"]: err("ci.yml must trigger on push to testing only")
+if set(on) != {"push", "pull_request"}: err("ci.yml triggers must be exactly push and pull_request (a feature-branch push alone must not run)")
+if on.get("pull_request", {}).get("branches") != ["testing"]: err("ci.yml pull_request must target testing only")
+if "pull_request" not in str(ci.get("concurrency", {}).get("group", "")) and "github.event.pull_request.number" not in str(ci.get("concurrency", {}).get("group", "")): err("ci.yml concurrency must group per pull request")
+if ci.get("concurrency", {}).get("cancel-in-progress") is not True: err("ci.yml must cancel in progress")
+# PR runs validate only: every upload step is gated to a push on testing
+for jn, j in ci["jobs"].items():
+    for st in j.get("steps", []):
+        if "upload-artifact" in str(st.get("uses", "")):
+            c = str(st.get("if", ""))
+            if "github.event_name == 'push'" not in c or "refs/heads/testing" not in c: err("ci.yml upload step must be gated to push on testing")
+rt = docs.get("require-testing-branch.yml", {})
+ron = rt.get(True, rt.get("on")) or {}
+if ron != {"pull_request": {"branches": ["main"]}}: err("require-testing-branch.yml must trigger only on pull_request into main")
+if rt.get("permissions") != {}: err("require-testing-branch.yml permissions must be {}")
+if list(rt.get("jobs", {})) != ["require-testing-branch"]: err("require-testing-branch.yml needs the single job require-testing-branch")
+elif any("checkout" in str(st.get("uses", "")) for st in rt["jobs"]["require-testing-branch"]["steps"]): err("require-testing-branch must not check out")
 pr = docs.get("promote.yml", {}); on = pr.get(True, pr.get("on"))
 if on.get("push", {}).get("branches") != ["main"]: err("promote.yml must trigger on push to main only")
 if list(docs.get("prepare-ego.yml", {}).get(True, {}).keys()) != ["workflow_dispatch"]: err("prepare-ego.yml must be workflow_dispatch only")
@@ -57,7 +75,7 @@ pt = ci.get("jobs", {}).get("publish-testing")
 if not pt: err("ci.yml lacks job publish-testing")
 else:
     if sorted(pt.get("needs", [])) != ["secrets", "test"]: err("publish-testing must need exactly test and secrets")
-    if "refs/heads/testing" not in str(pt.get("if", "")): err("publish-testing must be limited to the testing branch")
+    if "refs/heads/testing" not in str(pt.get("if", "")) or "github.event_name == 'push'" not in str(pt.get("if", "")): err("publish-testing must be limited to a push on the testing branch")
     if (pt.get("permissions") or {}) != {"contents": "write", "actions": "read"}: err("publish-testing permissions must be contents: write and actions: read")
     run = "\n".join(st.get("run", "") for st in pt.get("steps", []))
     if "release create testing" not in run or "--prerelease" not in run: err("publish-testing must create the testing prerelease")
