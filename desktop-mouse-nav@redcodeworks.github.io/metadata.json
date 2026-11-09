@@ -1,8 +1,9 @@
 {
   "name": "Desktop Mouse Nav",
-  "description": "Switch workspaces with the mouse Back and Forward buttons when the pointer is over the empty desktop.",
+  "description": "Run an action of your choice with the mouse Back and Forward buttons: by default, switch workspaces when the pointer is over the empty desktop.",
   "uuid": "desktop-mouse-nav@redcodeworks.github.io",
   "shell-version": ["51"],
-  "version-name": "0.1.1",
+  "version-name": "0.2.0",
+  "settings-schema": "org.gnome.shell.extensions.desktop-mouse-nav",
   "url": "https://github.com/redcodeworks/gnome-shell-extension-desktop-nav"
 }

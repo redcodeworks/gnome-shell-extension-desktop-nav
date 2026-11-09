@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.desktop-mouse-nav" path="/org/gnome/shell/extensions/desktop-mouse-nav/">
+    <key name="desktop-back" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'prev-workspace'</default>
+      <summary>Action for the back button (desktop)</summary>
+      <description>Used when the pointer is on the empty desktop, the overview or the app grid. 'none' falls back to the shell action.</description>
+    </key>
+    <key name="desktop-forward" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'next-workspace'</default>
+      <summary>Action for the forward button (desktop)</summary>
+      <description>Used when the pointer is on the empty desktop, the overview or the app grid. 'none' falls back to the shell action.</description>
+    </key>
+    <key name="shell-back" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'none'</default>
+      <summary>Action for the back button (shell surfaces)</summary>
+      <description>Used when the pointer is over a Shell surface such as the top bar. 'none' leaves the button alone. Presses over application windows never reach the extension.</description>
+    </key>
+    <key name="shell-forward" type="s">
+      <choices>
+        <choice value='none'/>
+        <choice value='prev-workspace'/>
+        <choice value='next-workspace'/>
+        <choice value='toggle-overview'/>
+        <choice value='toggle-app-grid'/>
+        <choice value='move-window-prev-workspace'/>
+        <choice value='move-window-next-workspace'/>
+      </choices>
+      <default>'none'</default>
+      <summary>Action for the forward button (shell surfaces)</summary>
+      <description>Used when the pointer is over a Shell surface such as the top bar. 'none' leaves the button alone. Presses over application windows never reach the extension.</description>
+    </key>
+    <key name="work-in-overview" type="b">
+      <default>false</default>
+      <summary>Enable for the Overview</summary>
+      <description>Run the Back and Forward actions also while the overview is open.</description>
+    </key>
+    <key name="work-in-app-grid" type="b">
+      <default>false</default>
+      <summary>Enable for the app grid</summary>
+      <description>Run the Back and Forward actions also while the app grid is showing.</description>
+    </key>
+    <key name="wrap-workspaces" type="b">
+      <default>false</default>
+      <summary>Wrap around workspaces</summary>
+      <description>Previous on the first workspace goes to the last one, and next on the last goes to the first. Also applies to moving a window. Does not apply to app grid pages.</description>
+    </key>
+    <key name="debug-log" type="b">
+      <default>false</default>
+      <summary>Log button presses</summary>
+      <description>For troubleshooting: write one debug line per Back or Forward press to the journal.</description>
+    </key>
+  </schema>
+</schemalist>

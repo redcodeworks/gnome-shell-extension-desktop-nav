@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Stub gh for the install tests. Releases live in $STUB_RELEASES/<tag>/ (files to download);
+# the file $STUB_RELEASES/_latest holds the tag of the newest non-prerelease (absent = no release).
+echo "gh $*" >> "${STUB_LOG:-/dev/null}"
+if [ -n "${STUB_FAIL_DOWNLOADS:-}" ]; then echo "gh: HTTP 504" >&2; exit 1; fi
+case "$1 $2" in
+    "release view")
+        [ -f "$STUB_RELEASES/_latest" ] || { echo "gh: release not found" >&2; exit 1; }
+        cat "$STUB_RELEASES/_latest" ;;
+    "release download")
+        tag=$3
+        while [ $# -gt 0 ]; do [ "$1" = -D ] && dest=$2; shift; done
+        [ -d "$STUB_RELEASES/$tag" ] || { echo "gh: release not found" >&2; exit 1; }
+        cp "$STUB_RELEASES/$tag"/* "$dest"/ ;;
+    *) echo "stub gh: unhandled $*" >&2; exit 99 ;;
+esac
