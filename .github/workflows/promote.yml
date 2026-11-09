@@ -1,0 +1,55 @@
+name: promote
+
+# On a merge into main: release the tested zip of this exact tree. Builds nothing.
+# Fails (publishing nothing) when no passing testing build has the same tree; ends
+# green with a notice when the version-name was already released.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write       # create the release and its tag
+      id-token: write       # sign the build-provenance attestation
+      attestations: write   # store the attestation
+      actions: read         # list artifacts and download the testing build's artifact
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXT: desktop-mouse-nav@redcodeworks.github.io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify the tested build of this tree
+        id: v
+        run: scripts/promote.sh
+        env:
+          REPO: ${{ github.repository }}
+          EXT_DIR: desktop-mouse-nav@redcodeworks.github.io
+          WORKDIR: ${{ runner.temp }}/artifact
+      - name: Attest the zip
+        if: steps.v.outputs.release == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.v.outputs.zip }}
+      - name: Create the release
+        if: steps.v.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          ZIP: ${{ steps.v.outputs.zip }}
+          SUM_FILE: ${{ steps.v.outputs.sha256file }}
+          SUM: ${{ steps.v.outputs.sha256 }}
+          RUN: ${{ steps.v.outputs.run }}
+          TREE: ${{ steps.v.outputs.tree }}
+        run: |
+          notes="Built once by the testing run $RUN (https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN) and promoted unchanged.
+          Tree $TREE, zip sha256 $SUM.
+          Verify: gh attestation verify <zip> -R $GITHUB_REPOSITORY"
+          gh release create "$TAG" "$ZIP" "$SUM_FILE" --target "$GITHUB_SHA" --title "$TAG" --notes "$notes"
