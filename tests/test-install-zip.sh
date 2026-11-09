@@ -29,5 +29,5 @@ echo old > "$target/marker"
 PATH=$bin expect_rc 1 "missing glib-compile-schemas fails" "$bin/bash" "$root/scripts/install-zip.sh" "$tmp/schema.zip" "$ext" "$uuid"
 expect_out 'glib2-devel' "message names the package"
 [ "$(cat "$target/marker" 2>/dev/null)" = old ] && pass "existing copy kept" || fail "existing copy replaced"
-[ -z "$(ls -A "$ext" | grep -v "^$uuid\$")" ] && pass "no staging directory left" || fail "staging leftovers"
+[ -z "$(ls -A "$ext" | grep -v -e "^$uuid\$" -e "^\.$uuid\.zip-sha256\$")" ] && pass "no staging directory left" || fail "staging leftovers"
 finish

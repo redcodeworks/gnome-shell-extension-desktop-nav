@@ -2,6 +2,8 @@ name: ci
 
 # One run per push to testing. The built zip is uploaded once and promoted (never
 # rebuilt) when the same tree reaches main. Required checks on main: test, secrets.
+# After both pass, publish-testing republishes the same zip as the rolling `testing`
+# prerelease (the tag is `testing`, never `v*`), so `just install --testing` can fetch it.
 on:
   push:
     branches: [testing]
@@ -20,6 +22,8 @@ jobs:
   test:
     runs-on: ubuntu-26.04
     container: fedora:45
+    outputs:
+      tree: ${{ steps.manifest.outputs.tree }}
     steps:
       - name: Install tools
         run: dnf install -y --setopt=install_weak_deps=False git nodejs gnome-shell just unzip zip jq glib2-devel python3-pyyaml
@@ -69,3 +73,38 @@ jobs:
       - name: Scan the history
         run: |
           "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner .
+
+  publish-testing:
+    needs: [test, secrets]
+    if: github.ref == 'refs/heads/testing'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write   # create and replace the `testing` prerelease and its tag
+      actions: read     # download the artifact the test job uploaded
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TREE: ${{ needs.test.outputs.tree }}
+    steps:
+      - name: Replace the testing prerelease with the tested build
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -n "extension-$TREE" -D "$RUNNER_TEMP/art"
+          zip=$(ls "$RUNNER_TEMP"/art/*.shell-extension.zip)
+          name=$(basename "$zip")
+          sum=$(sha256sum "$zip" | cut -d' ' -f1)
+          want=$(jq -r .zip_sha256 "$RUNNER_TEMP/art/manifest.json")
+          [ "$sum" = "$want" ] || { echo "::error::zip sha256 $sum does not match the manifest ($want)"; exit 1; }
+          [ "$(jq -r .tree "$RUNNER_TEMP/art/manifest.json")" = "$TREE" ] || { echo "::error::manifest tree differs from $TREE"; exit 1; }
+          echo "$sum  $name" > "$RUNNER_TEMP/art/$name.sha256"
+          version=$(jq -r '.["version-name"]' "$RUNNER_TEMP/art/manifest.json")
+          short=${GITHUB_SHA::7}
+          notes="Rolling testing build for UAT (user acceptance testing), not a release: it has not been tried by users. Each push to the testing branch replaces it.
+          Commit $GITHUB_SHA, tree $TREE, version-name $version, zip sha256 $sum.
+          Built once by https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID after test and secrets passed.
+          Install: just install --testing"
+          if gh release view testing -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete testing -R "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+          gh release create testing "$zip" "$RUNNER_TEMP/art/$name.sha256" "$RUNNER_TEMP/art/manifest.json" \
+            -R "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+            --title "testing ($version, $short)" --notes "$notes"

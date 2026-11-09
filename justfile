@@ -1,6 +1,6 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# One source of truth for the uuid; `install` refuses to run if metadata.json disagrees.
+# One source of truth for the uuid; `install-local` refuses to run if metadata.json disagrees.
 uuid := "desktop-mouse-nav@redcodeworks.github.io"
 extdir := env_var_or_default("GNOME_EXTENSIONS_DIR", env_var("HOME") + "/.local/share/gnome-shell/extensions")
 
@@ -19,19 +19,19 @@ pack:
     mkdir -p dist
     gnome-extensions pack --force --out-dir dist --extra-source={{justfile_directory()}}/LICENSE --extra-source=actions.js --schema=schemas/org.gnome.shell.extensions.desktop-mouse-nav.gschema.xml {{uuid}}
 
-# Build the zip and unpack it into the extensions directory (replaces this uuid only).
-[group('extension')]
-install: pack
-    scripts/install-zip.sh "dist/{{uuid}}.shell-extension.zip" "{{extdir}}" "{{uuid}}"
-
-# Install a released zip (latest or a version), checksum verified; --dry-run installs nothing.
+# Download and install a build: latest release, a VERSION, or --testing.
 [group('extension')]
 [positional-arguments]
-install-release *args:
+install *args:
     #!/usr/bin/env bash
     set -uo pipefail
     export UUID="{{uuid}}" GNOME_EXTENSIONS_DIR="{{extdir}}"
-    exec scripts/install-release.sh "$@"
+    exec scripts/install-remote.sh "$@"
+
+# Build the working tree and unpack it into the extensions directory.
+[group('extension')]
+install-local: pack
+    scripts/install-zip.sh "dist/{{uuid}}.shell-extension.zip" "{{extdir}}" "{{uuid}}"
 
 # Enable the extension (log out and in once after the first install).
 [group('extension')]
@@ -52,7 +52,7 @@ uninstall:
     if [ -z "${SKIP_GNOME_EXTENSIONS:-}" ] && command -v gnome-extensions >/dev/null && gnome-extensions info "{{uuid}}" >/dev/null 2>&1; then
         gnome-extensions disable "{{uuid}}" || true
     fi
-    rm -rf -- "{{extdir}}/{{uuid}}"
+    rm -rf -- "{{extdir}}/{{uuid}}" "{{extdir}}/.{{uuid}}.zip-sha256"
     echo "Removed {{extdir}}/{{uuid}}. Undo with: just install"
 # Show what the Shell knows and whether the extension directory exists.
 [group('extension')]
@@ -68,13 +68,13 @@ test: lint
     set -euo pipefail
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     export GNOME_EXTENSIONS_DIR="$tmp" SKIP_GNOME_EXTENSIONS=1
-    just install
+    just install-local
     for f in metadata.json extension.js prefs.js actions.js schemas/org.gnome.shell.extensions.desktop-mouse-nav.gschema.xml; do
         [ -f "$tmp/{{uuid}}/$f" ] || { echo "FAIL: $f missing after install" >&2; exit 1; }
     done
-    just install   # reinstall replaces the old copy
+    just install-local   # reinstall replaces the old copy
     just uninstall
-    [ ! -e "$tmp/{{uuid}}" ] || { echo "FAIL: directory still there after uninstall" >&2; exit 1; }
+    [ ! -e "$tmp/{{uuid}}" ] && [ ! -e "$tmp/.{{uuid}}.zip-sha256" ] || { echo "FAIL: directory or marker still there after uninstall" >&2; exit 1; }
     echo "install/uninstall test OK"
     rc=0
     for t in tests/test-*.sh; do

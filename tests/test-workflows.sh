@@ -52,6 +52,23 @@ else:
     if re.search(r"\|\s*(ba)?sh\b", run) or "--user" in run or "pip install -g" in run: err("Shexli step installs unsafely")
     if "exit 0" not in run.splitlines()[-1]: err("Shexli step must end with exit 0 (report only)")
 if not any("shexli" in str((st.get("with") or {}).get("name", "")) for st in steps): err("no shexli artifact upload")
+# publish-testing: only after test and secrets, push to testing only, the one job with contents: write in ci.yml, no v* tag
+pt = ci.get("jobs", {}).get("publish-testing")
+if not pt: err("ci.yml lacks job publish-testing")
+else:
+    if sorted(pt.get("needs", [])) != ["secrets", "test"]: err("publish-testing must need exactly test and secrets")
+    if "refs/heads/testing" not in str(pt.get("if", "")): err("publish-testing must be limited to the testing branch")
+    if (pt.get("permissions") or {}) != {"contents": "write", "actions": "read"}: err("publish-testing permissions must be contents: write and actions: read")
+    run = "\n".join(st.get("run", "") for st in pt.get("steps", []))
+    if "release create testing" not in run or "--prerelease" not in run: err("publish-testing must create the testing prerelease")
+    if "release delete testing" not in run or "--cleanup-tag" not in run: err("publish-testing must replace the old testing release")
+    if re.search(r"release (create|delete) v", run) or re.search(r"v\$", run): err("publish-testing must not touch a v* tag")
+    if "docker build" in run or "gnome-extensions pack" in run or "just pack" in run: err("publish-testing must not rebuild")
+for jn in ("test", "secrets"):
+    if (ci["jobs"][jn].get("permissions") or {}).get("contents") == "write": err("ci.yml job " + jn + " must stay read-only")
+if (ci.get("permissions") or {}) != {"contents": "read"}: err("ci.yml top-level permissions must stay contents: read")
+pm = docs.get("promote.yml", {})
+if "testing" in str(pm.get("on", pm.get(True))): err("promote.yml must not react to testing")
 # least privilege
 for f, y in docs.items():
     top = y.get("permissions")
@@ -59,7 +76,7 @@ for f, y in docs.items():
     for jn, j in y["jobs"].items():
         p = {**(top or {}), **(j.get("permissions") or {})}
         for k in ("id-token", "attestations", "issues", "contents"):
-            if p.get(k) == "write" and not (f, jn, k) in {("promote.yml", "promote", "id-token"), ("promote.yml", "promote", "attestations"), ("promote.yml", "promote", "contents"), ("gnome-version-watch.yml", "watch", "issues")}:
+            if p.get(k) == "write" and not (f, jn, k) in {("promote.yml", "promote", "id-token"), ("promote.yml", "promote", "attestations"), ("promote.yml", "promote", "contents"), ("ci.yml", "publish-testing", "contents"), ("gnome-version-watch.yml", "watch", "issues")}:
                 err(f"{f}: job {jn} has {k}: write")
 print("workflows OK" if not bad else "")
 sys.exit(1 if bad else 0)

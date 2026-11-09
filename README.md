@@ -5,14 +5,17 @@ A GNOME Shell extension: choose what the mouse Back and Forward buttons do. By d
 ## Requirements
 
 - GNOME Shell 51 (Wayland)
-- For the install commands: [`just`](https://github.com/casey/just), `unzip`, and (for `just install-release`) the GitHub CLI `gh`
+- For the install commands: [`just`](https://github.com/casey/just), `unzip`, and (for `just install`) the GitHub CLI `gh`
 
 ## Install
 
 Pick one:
 
-- From a release (no build tools needed): `just install-release` installs the latest release, `just install-release 0.1.0` a specific one. It verifies the checksum first; `--dry-run` shows what it would do. You can also download the zip from the Releases page and unpack it into `~/.local/share/gnome-shell/extensions/desktop-mouse-nav@redcodeworks.github.io/`, then run `glib-compile-schemas schemas/` inside that directory.
-- From source: `just install` builds the zip and unpacks it into the extensions directory (needs `gnome-extensions`). Both unpack routes compile the settings schema, which needs `glib-compile-schemas` (Fedora package `glib2-devel`).
+- `just install`: the latest release (no build tools needed). `just install 0.1.1` installs a specific release. It verifies the checksum first, says "already installed" when nothing would change, and `--dry-run` shows what it would do.
+- `just install --testing`: the latest testing build, a rolling prerelease that is replaced on every push to the `testing` branch once its checks pass. Meant for trying changes before they are released.
+- `just install-local`: builds the zip from your working tree and unpacks it (needs `gnome-extensions`).
+
+You can also download the zip from the Releases page and unpack it into `~/.local/share/gnome-shell/extensions/desktop-mouse-nav@redcodeworks.github.io/`, then run `glib-compile-schemas schemas/` inside that directory. All unpack routes need `glib-compile-schemas` for the settings schema (Fedora package `glib2-devel`).
 
 On Wayland, log out and back in after the first install, then run `just enable`. `just uninstall` removes it again.
 

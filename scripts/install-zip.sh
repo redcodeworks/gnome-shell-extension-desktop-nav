@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Unpack an extension zip into the extensions directory, replacing the previous
-# copy of that uuid only. Shared by `just install` and `just install-release`.
+# copy of that uuid only. Shared by `just install` and `just install-local`.
 # Usage: install-zip.sh ZIP EXTDIR UUID
 set -euo pipefail
 [ $# -eq 3 ] || { echo "usage: $0 ZIP EXTDIR UUID" >&2; exit 2; }
@@ -26,6 +26,8 @@ if compgen -G "$stage/schemas/*.gschema.xml" >/dev/null; then
 fi
 rm -rf -- "$target"
 mv -- "$stage" "$target"
+# Remember which zip this is, so `just install` can tell "already installed" from a different build of the same version.
+sha256sum "$zip" | cut -d' ' -f1 > "$extdir/.$uuid.zip-sha256"
 trap - EXIT
 echo "Installed to $target"
 echo "On Wayland, log out and in first, then run: just enable"
