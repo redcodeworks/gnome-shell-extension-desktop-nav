@@ -25,3 +25,8 @@ js/extensions/sharedInternals.js	^    getSettings\(	extension.js: this.getSettin
 js/extensions/prefs.js	^export class ExtensionPreferences\b	prefs.js: import {ExtensionPreferences}
 js/extensions/sharedInternals.js	^    getSettings\(	prefs.js: this.getSettings()
 js/ui/overview.js	^    show\(	extension.js: Main.overview.show
+js/ui/main.js	^export let panel\b	extension.js: Main.panel
+js/ui/panel.js	statusArea	extension.js: panel?.statusArea
+js/ui/panel.js	quickSettings	extension.js: quickSettings
+js/ui/panel.js	dateMenu	extension.js: dateMenu
+js/ui/panel.js	toggleCalendar\(	extension.js: toggleCalendar
