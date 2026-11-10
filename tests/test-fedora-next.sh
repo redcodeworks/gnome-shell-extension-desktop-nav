@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# fedora-next workflow: triggers, pins, plan logic (stub skopeo), verdict behavior per event,
-# nothing uploaded or published, the required-check workflows untouched. No network.
+# fedora-next workflow: triggers, pins, release lookup (stub gh), plan logic (stub skopeo),
+# verdict behavior, nothing uploaded or published, the required-check workflows untouched. No network.
 . "$(dirname "$0")/lib.sh"
 py=(python3 -I)
 "${py[@]}" -c 'import yaml' 2>/dev/null || {
@@ -16,15 +16,12 @@ def err(m):
     global bad; bad += 1; print("FAIL", m, file=sys.stderr)
 txt = open(f).read(); y = yaml.safe_load(txt)
 on = y.get(True, y.get("on"))
-if set(on) != {"push", "pull_request", "schedule", "workflow_dispatch"}: err("triggers must be push, pull_request, schedule, workflow_dispatch")
-if on["push"] != {"branches": ["testing"]}: err("push only on testing")
-if on["pull_request"] != {"branches": ["testing"]}: err("pull_request only into testing")
+if set(on) != {"schedule", "workflow_dispatch"}: err("triggers must be schedule and workflow_dispatch only (no push, no pull_request)")
 cr = on["schedule"][0]["cron"]
-if not re.fullmatch(r"0 \d{1,2} \* \* \d", cr): err("cron must be on the hour: " + cr)
-if cr == "23 6 * * 3" or cr.startswith("23 "): err("cron coincides with gnome-version-watch")
+if cr != "0 6 * * 1": err("cron must be Monday 06:00 UTC: " + cr)
 if y.get("permissions") != {"contents": "read"}: err("top-level permissions must be contents: read")
 c = y.get("concurrency", {})
-if c.get("cancel-in-progress") is not True or "pull_request.number" not in c.get("group", ""): err("concurrency per PR/ref with cancel-in-progress")
+if c.get("cancel-in-progress") is not True or c.get("group") != "fedora-next": err("one concurrency group, cancel-in-progress")
 if str(y["env"].get("FEDORA_BASELINE")) != "45": err("FEDORA_BASELINE must be 45 (the release nox runs)")
 jobs = y["jobs"]
 if set(jobs) != {"plan", "next-test"}: err("jobs must be exactly plan and next-test (never test or secrets: those are required check names)")
@@ -37,15 +34,18 @@ for i, line in enumerate(txt.splitlines(), 1):
     if m:
         if not re.search(r"@[0-9a-f]{40}$", m.group(1)): err(f"line {i}: action not pinned by SHA")
         if not re.search(r"#\s*v\d", m.group(2)): err(f"line {i}: no version comment")
-if re.search(r"upload-artifact|download-artifact|gh release|release create|attest|actions: write|contents: write|gh issue|git push", txt): err("must upload and publish nothing")
+if re.search(r"upload-artifact|download-artifact|gh release (create|delete|upload|edit)|release create|attest|actions: write|contents: write|gh issue|git push", txt): err("must upload and publish nothing")
 nt = jobs["next-test"]
 if nt.get("if") != "needs.plan.outputs.run == 'true'": err("next-test must run only when the plan found an image")
 if nt.get("container") != "${{ needs.plan.outputs.image }}": err("container must be the plan's image")
 if "continue-on-error" in nt: err("next-test must not use job-level continue-on-error")
 steps = {s.get("id"): s for s in nt["steps"] if s.get("id")}
-for sid in ("install", "suite", "schema", "pack", "preflight", "probe"):
+for sid in ("install", "suite", "schema", "zip", "preflight", "probe"):
     if sid not in steps or steps[sid].get("continue-on-error") is not True: err("step %s needs continue-on-error: true" % sid)
-if "just test" not in steps["suite"]["run"] or "just pack" not in steps["pack"]["run"]: err("suite must run just test and just pack")
+if "just test" not in steps["suite"]["run"]: err("suite must run just test")
+if "releases/download/$TAG" not in steps["zip"]["run"] or "sha256sum -c" not in steps["zip"]["run"]: err("the released zip must be downloaded and checksum-verified")
+co = [s for s in nt["steps"] if str(s.get("uses", "")).startswith("actions/checkout")]
+if len(co) != 1 or co[0].get("with", {}).get("ref") != "${{ needs.plan.outputs.tag }}": err("next-test must check out the release tag, not the branch")
 if "ego-preflight.sh" not in steps["preflight"]["run"]: err("pre-flight step missing")
 if "api-probe.sh" not in steps["probe"]["run"]: err("probe step missing")
 inst = steps["install"]["run"]
@@ -55,11 +55,12 @@ verdict = [s for s in nt["steps"] if s.get("name") == "Verdict"]
 if len(verdict) != 1 or verdict[0].get("if") != "always()": err("one Verdict step with if: always()")
 else:
     open(out + "/verdict.sh", "w").write(verdict[0]["run"])
-    for k in ("INSTALL", "SUITE", "SCHEMA", "PACK", "PREFLIGHT", "PROBE", "EVENT", "IMAGE"):
+    for k in ("INSTALL", "SUITE", "SCHEMA", "ZIP", "PREFLIGHT", "PROBE", "RELEASE", "IMAGE"):
         if k not in verdict[0]["env"]: err("Verdict lacks env " + k)
 plan = jobs["plan"]
 if "scripts/fedora-next-plan.sh" not in str(plan["steps"]): err("plan job must run scripts/fedora-next-plan.sh")
-if set(plan["outputs"]) != {"run", "image"}: err("plan outputs run and image")
+if set(plan["outputs"]) != {"run", "image", "tag", "version"}: err("plan outputs run, image, tag and version")
+if "scripts/fedora-next-release.sh" not in str(plan["steps"]): err("plan job must run scripts/fedora-next-release.sh")
 sys.exit(1 if bad else 0)
 PY
 [ $? -eq 0 ] && pass "fedora-next.yml structure" || fail "fedora-next.yml structure"
@@ -76,25 +77,40 @@ for f in "${!sums[@]}"; do
     [ "$got" = "${sums[$f]}" ] && pass "$f unchanged" || fail "$f changed (sum $got); update tests/test-fedora-next.sh if that was intended"
 done
 
-# verdict step per event: push and pull_request warn and stay green; schedule and dispatch go red
-ve() { # EVENT [VAR=outcome ...]
-    local ev=$1; shift
-    env -i PATH="$PATH" GITHUB_STEP_SUMMARY="$tmp/sum.md" EVENT="$ev" IMAGE=docker.io/library/fedora:46 \
-        INSTALL=success SUITE=success SCHEMA=success PACK=success PREFLIGHT=success PROBE=success "$@" bash "$tmp/verdict.sh"
+# verdict step: a failure always goes red (the run is the early warning), skipped steps are not failures
+ve() { # [VAR=outcome ...]
+    env -i PATH="$PATH" GITHUB_STEP_SUMMARY="$tmp/sum.md" RELEASE=v0.4.1 IMAGE=docker.io/library/fedora:46 \
+        INSTALL=success SUITE=success SCHEMA=success ZIP=success PREFLIGHT=success PROBE=success "$@" bash "$tmp/verdict.sh"
 }
-for ev in push pull_request; do
-    expect_rc 0 "verdict: all good on $ev" ve $ev
-    expect_rc 0 "verdict: probe failure on $ev stays green" ve $ev PROBE=failure
-    expect_out '::warning::extension may break on docker.io/library/fedora:46: failed steps: api-probe' "verdict: $ev warns"
-done
-for ev in schedule workflow_dispatch; do
-    expect_rc 0 "verdict: all good on $ev" ve $ev
-    expect_rc 1 "verdict: suite failure on $ev goes red" ve $ev SUITE=failure
-    expect_out '::error::extension may break on .*just-test' "verdict: $ev reports"
-    expect_rc 1 "verdict: install failure on $ev goes red" ve $ev INSTALL=failure SUITE=skipped PACK=skipped PROBE=skipped
-done
-expect_rc 0 "verdict: skipped steps are not failures" ve push SUITE=skipped
-grep -q 'extension may break' "$tmp/sum.md" && pass "verdict writes a summary" || fail "verdict writes a summary"
+expect_rc 0 "verdict: all good" ve
+grep -q 'release `v0.4.1` passed on `docker.io/library/fedora:46`' "$tmp/sum.md" && pass "verdict: summary names the release and the image" || fail "verdict: summary names the release and the image"
+expect_rc 1 "verdict: probe failure goes red" ve PROBE=failure
+expect_out '::error::release v0.4.1 may break on docker.io/library/fedora:46: failed steps: api-probe' "verdict: reports release, image and step"
+expect_rc 1 "verdict: suite failure goes red" ve SUITE=failure
+expect_rc 1 "verdict: zip failure goes red" ve ZIP=failure PREFLIGHT=skipped
+expect_out 'release-zip' "verdict: names the zip step"
+expect_rc 1 "verdict: install failure goes red" ve INSTALL=failure SUITE=skipped ZIP=skipped PROBE=skipped
+expect_rc 0 "verdict: skipped steps are not failures" ve SUITE=skipped
+grep -q 'may break' "$tmp/sum.md" && pass "verdict writes a summary" || fail "verdict writes a summary"
+
+# release lookup with a stub gh
+cat > "$tmp/gh" <<'STUB'
+#!/usr/bin/env bash
+# usage: gh release view --json tagName --jq .tagName ; TAG = printed tag, GHFAIL=1 = no release
+[ -n "${GHFAIL:-}" ] && { echo "release not found" >&2; exit 1; }
+echo "$TAG"
+STUB
+chmod +x "$tmp/gh"
+rel() { : > "$tmp/gh.out"; : > "$tmp/sum3.md"
+    env -i PATH="$PATH" GH="$tmp/gh" GITHUB_OUTPUT="$tmp/gh.out" GITHUB_STEP_SUMMARY="$tmp/sum3.md" "$@" "$root/scripts/fedora-next-release.sh"; }
+expect_rc 0 "release: latest release found" rel TAG=v0.4.1
+grep -qx tag=v0.4.1 "$tmp/gh.out" && grep -qx version=0.4.1 "$tmp/gh.out" && pass "release: tag and version output" || fail "release: tag and version output"
+grep -q 'v0.4.1' "$tmp/sum3.md" && pass "release: summary names the release" || fail "release: summary names the release"
+expect_rc 1 "release: no release yet fails" rel GHFAIL=1
+expect_out 'no published release found' "release: clear message"
+expect_rc 1 "release: empty answer fails" rel TAG=
+expect_rc 1 "release: odd tag fails" rel 'TAG=testing'
+[ ! -s "$tmp/gh.out" ] && pass "release: nothing written on failure" || fail "release: nothing written on failure"
 
 # plan script with a stub skopeo
 cat > "$tmp/skopeo" <<'STUB'

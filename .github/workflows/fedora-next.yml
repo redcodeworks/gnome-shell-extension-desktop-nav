@@ -1,29 +1,25 @@
 name: fedora-next
 
-# Early warning, never a gate: does the extension still work against the NEXT Fedora
-# release (the one after the release nox runs)? The plan job picks the image; the next-test
-# job runs the same suite as ci.yml's test job inside it, plus the Shell API probe.
+# Early warning, never a gate: does the CURRENT RELEASE (the Latest published release, not
+# the branch under development) still work against the NEXT Fedora release (the one after
+# the release nox runs)? The plan job finds the release and picks the image; the next-test
+# job checks out the release tag, downloads the released zip and runs the suite, the
+# pre-flight on the zip and the Shell API probe inside the image.
 # NOT a required check and nothing depends on it. It uploads nothing and publishes nothing.
-#  - push to testing and pull_request into testing: a failure becomes a warning
-#    annotation and a job summary section; the run stays green.
-#  - schedule (weekly) and workflow_dispatch: the same failure fails the job, so the weekly
-#    run goes red and shows up in the scheduled-run check.
+# Runs weekly (Monday 06:00 UTC) and on demand; a failure fails the run, so the weekly run
+# goes red and shows up in the scheduled-run check. Scheduled workflows only run from the
+# default branch (main). No published release yet: the plan job fails with a clear message.
 # When no newer image exists the run ends green with a notice.
-# Weekly slot: Thursday 07:00 UTC, a day after gnome-version-watch (Wednesday 06:23 UTC).
 on:
-  push:
-    branches: [testing]
-  pull_request:
-    branches: [testing]
   schedule:
-    - cron: '0 7 * * 4'
+    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: fedora-next-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  group: fedora-next
   cancel-in-progress: true
 
 env:
@@ -37,6 +33,8 @@ jobs:
     outputs:
       run: ${{ steps.plan.outputs.run }}
       image: ${{ steps.plan.outputs.image }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install tools
@@ -47,6 +45,11 @@ jobs:
             sleep 10
           done
           echo "::warning::could not install skopeo; the plan will report nothing to test"
+      - name: Find the current release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fedora-next-release.sh
       - name: Pick the image
         id: plan
         run: scripts/fedora-next-plan.sh
@@ -62,11 +65,14 @@ jobs:
         continue-on-error: true
         run: |
           for i in 1 2 3; do
-            dnf install -y --setopt=install_weak_deps=False --setopt=retries=5 git nodejs gnome-shell just unzip zip jq glib2-devel python3-pyyaml cpio xz tar rpm && exit 0
+            dnf install -y --setopt=install_weak_deps=False --setopt=retries=5 git nodejs gnome-shell just unzip zip jq glib2-devel python3-pyyaml cpio xz tar rpm curl && exit 0
             [ "$i" -lt 3 ] && sleep 10
           done
           exit 1
+      # The release tag, so the scripts, tests and sources are exactly the released ones.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.tag }}
       - name: Let git read the workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
       - name: Record the image and Shell versions
@@ -74,6 +80,7 @@ jobs:
           {
             echo "### Fedora image under test"
             echo
+            echo "Release: \`${{ needs.plan.outputs.tag }}\` (version-name ${{ needs.plan.outputs.version }})"
             echo "Image: \`${{ needs.plan.outputs.image }}\`"
             . /etc/os-release && echo "OS: $PRETTY_NAME"
             echo "gnome-shell: $(rpm -q --qf '%{VERSION}-%{RELEASE}' gnome-shell 2>/dev/null || echo not installed)"
@@ -96,14 +103,21 @@ jobs:
           else
             echo "no schema, skipping"
           fi
-      - name: Pack
-        id: pack
+      - name: Download the released zip
+        id: zip
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: just pack
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          mkdir -p dist
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          curl -fsSL --retry 3 -o "dist/$EXT.shell-extension.zip" "$base/$EXT.shell-extension.zip"
+          curl -fsSL --retry 3 -o "dist/$EXT.shell-extension.zip.sha256" "$base/$EXT.shell-extension.zip.sha256"
+          (cd dist && sha256sum -c "$EXT.shell-extension.zip.sha256")
       - name: Pre-flight on the packed zip
         id: preflight
-        if: steps.pack.outcome == 'success'
+        if: steps.zip.outcome == 'success'
         continue-on-error: true
         run: scripts/ego-preflight.sh "dist/$EXT.shell-extension.zip" --repo-url "https://github.com/$GITHUB_REPOSITORY" --license-dir .
       - name: API probe
@@ -115,11 +129,11 @@ jobs:
         if: always()
         env:
           IMAGE: ${{ needs.plan.outputs.image }}
-          EVENT: ${{ github.event_name }}
+          RELEASE: ${{ needs.plan.outputs.tag }}
           INSTALL: ${{ steps.install.outcome }}
           SUITE: ${{ steps.suite.outcome }}
           SCHEMA: ${{ steps.schema.outcome }}
-          PACK: ${{ steps.pack.outcome }}
+          ZIP: ${{ steps.zip.outcome }}
           PREFLIGHT: ${{ steps.preflight.outcome }}
           PROBE: ${{ steps.probe.outcome }}
         run: |
@@ -127,26 +141,20 @@ jobs:
           [ "$INSTALL" = failure ] && failed="$failed install-tools"
           [ "$SUITE" = failure ] && failed="$failed just-test"
           [ "$SCHEMA" = failure ] && failed="$failed schema"
-          [ "$PACK" = failure ] && failed="$failed pack"
+          [ "$ZIP" = failure ] && failed="$failed release-zip"
           [ "$PREFLIGHT" = failure ] && failed="$failed pre-flight"
           [ "$PROBE" = failure ] && failed="$failed api-probe"
           failed=${failed# }
           if [ -z "$failed" ]; then
-            echo "fedora-next: everything passed on $IMAGE"
-            echo "### Result: passed on \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "fedora-next: release $RELEASE passed on $IMAGE"
+            echo "### Result: release \`$RELEASE\` passed on \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          msg="extension may break on $IMAGE: failed steps: $failed"
+          msg="release $RELEASE may break on $IMAGE: failed steps: $failed"
           {
             echo "### Result: $msg"
             echo
             echo "See the step logs above. This workflow is an early warning, not a gate."
           } >> "$GITHUB_STEP_SUMMARY"
-          case $EVENT in
-            schedule|workflow_dispatch)
-              echo "::error::$msg"
-              exit 1 ;;
-            *)
-              echo "::warning::$msg"
-              exit 0 ;;
-          esac
+          echo "::error::$msg"
+          exit 1
