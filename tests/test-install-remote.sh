@@ -47,6 +47,12 @@ expect_rc 1 "testing only: default has no release" inst; expect_out 'no release'
 expect_rc 0 "testing only: --testing installs" inst --testing; [ "$(ver)" = 0.2.0 ] && pass "testing installed" || fail "testing version"
 expect_rc 0 "testing second run is idempotent" inst --testing; expect_out 'already installed' "testing already installed"
 
+# a stamped rc testing build installs like any other (version-name is free text to the installer)
+reset; mkrel testing 0.6.0-rc3 a
+expect_rc 0 "rc-stamped testing zip installs" inst --testing; [ "$(ver)" = 0.6.0-rc3 ] && pass "rc version-name installed" || fail "rc version $(ver)"
+expect_rc 0 "rc-stamped testing zip is idempotent" inst --testing; expect_out 'already installed' "rc zip already installed"
+expect_rc 1 "rc testing build is not the default release" inst; expect_out 'no release' "default ignores the rc prerelease"
+
 # both present: default picks the release, --testing the prerelease
 reset; mkrel v0.1.1 0.1.1; echo v0.1.1 > "$STUB_RELEASES/_latest"; mkrel testing 0.2.0 b
 expect_rc 0 "both: default" inst; [ "$(ver)" = 0.1.1 ] && pass "default picked the release" || fail "default picked $(ver)"

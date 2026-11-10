@@ -33,6 +33,8 @@ jobs:
       - name: Install tools
         run: dnf install -y --setopt=install_weak_deps=False git nodejs gnome-shell just unzip zip jq glib2-devel python3-pyyaml
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the release candidate number counts commits since the last release tag
       - name: Let git read the workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Lint, install test, script tests
@@ -47,6 +49,9 @@ jobs:
           fi
       - name: Pack
         run: just pack
+      - name: Stamp the release candidate number into the zip
+        id: rc
+        run: scripts/stamp-rc.sh "$EXT" "dist/$EXT.shell-extension.zip"
       - name: Write the manifest
         id: manifest
         run: |
@@ -106,7 +111,8 @@ jobs:
           version=$(jq -r '.["version-name"]' "$RUNNER_TEMP/art/manifest.json")
           short=${GITHUB_SHA::7}
           notes="Rolling testing build for UAT (user acceptance testing), not a release: it has not been tried by users. Each push to the testing branch replaces it.
-          Commit $GITHUB_SHA, tree $TREE, version-name $version, zip sha256 $sum.
+          Release candidate: version-name $version is the target version plus -rc<N>, N = changes merged into testing since the last release. The clean version-name is released on promotion.
+          Commit $GITHUB_SHA, tree $TREE, zip sha256 $sum.
           Built once by https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID after test and secrets passed.
           Install: just install --testing"
           if gh release view testing -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

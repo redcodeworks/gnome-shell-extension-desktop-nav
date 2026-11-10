@@ -12,7 +12,7 @@ A GNOME Shell extension: choose what your extra mouse buttons and the mouse whee
 Pick one:
 
 - `just install`: the latest release (no build tools needed). `just install 0.1.1` installs a specific release. It verifies the checksum first, says "already installed" when nothing would change, and `--dry-run` shows what it would do.
-- `just install --testing`: the latest testing build, a rolling prerelease that is replaced on every push to the `testing` branch once its checks pass. Meant for trying changes before they are released.
+- `just install --testing`: the latest testing build, a rolling prerelease that is replaced on every push to the `testing` branch once its checks pass. Meant for trying changes before they are released. Its version reads like `0.6.1-rc3`: the coming release plus a release candidate number that counts the changes merged since the last release. The release itself carries the plain `0.6.1`.
 - `just install-local`: builds the zip from your working tree and unpacks it (needs `gnome-extensions`).
 
 You can also download the zip from the Releases page and unpack it into `~/.local/share/gnome-shell/extensions/desktop-mouse-nav@redcodeworks.github.io/`, then run `glib-compile-schemas schemas/` inside that directory. All unpack routes need `glib-compile-schemas` for the settings schema (Fedora package `glib2-devel`).
