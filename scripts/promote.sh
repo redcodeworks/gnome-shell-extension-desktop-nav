@@ -94,7 +94,7 @@ cp "$zip" "$relzip"
 stage=$(mktemp -d); trap 'rm -rf "$stage"' EXIT
 cp "$meta" "$stage/metadata.json"
 ( cd "$stage" && zip -q -X "$relzip" metadata.json ) || fail "cannot repack the zip"
-cmp -s <(unzip -p "$relzip" metadata.json) "$meta" || fail "repacked metadata.json differs from the tree's"
+[ "$(unzip -p "$relzip" metadata.json | sha256sum)" = "$(sha256sum < "$meta")" ] || fail "repacked metadata.json differs from the tree's"
 crcs() { unzip -v "$1" | awk 'NF >= 8 && $NF != "metadata.json" && $1 ~ /^[0-9]+$/ {print $1, $7, $NF}' | sort; }
 [ "$(crcs "$zip")" = "$(crcs "$relzip")" ] && [ -n "$(crcs "$relzip")" ] || fail "repacked zip differs from the tested zip in entries other than metadata.json"
 [ "$(unzip -Z1 "$zip" | sort)" = "$(unzip -Z1 "$relzip" | sort)" ] || fail "repacked zip lists different files than the tested zip"

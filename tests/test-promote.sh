@@ -96,7 +96,7 @@ reset; arts "$rctree" testing 43
 expect_rc 0 "stamped testing zip is promoted" run_promote "$rcrepo"
 rz=$tmp/work/release/$uuid.shell-extension.zip
 [ "$(unzip -p "$rz" metadata.json | jq -r '.["version-name"]')" = "0.6.0" ] && pass "release zip carries the clean version-name" || fail "release zip version-name"
-cmp -s <(unzip -p "$rz" metadata.json) "$rcrepo/$uuid/metadata.json" && pass "release metadata.json is byte-identical to the tree's" || fail "release metadata.json vs tree"
+[ "$(unzip -p "$rz" metadata.json | sha256sum)" = "$(sha256sum < "$rcrepo/$uuid/metadata.json")" ] && pass "release metadata.json is byte-identical to the tree's" || fail "release metadata.json vs tree"
 [ "$(unzip -p "$rz" metadata.json | jq -r .version)" = 7 ] && pass "integer version untouched" || fail "integer version"
 [ "$(crc "$rz")" = "$(crc "$rcart/$uuid.shell-extension.zip")" ] && [ -n "$(crc "$rz")" ] && pass "release zip entries equal the tested zip's (except metadata.json)" || fail "repack changed other entries"
 [ "$(unzip -p "$rcart/$uuid.shell-extension.zip" metadata.json | jq -r '.["version-name"]')" = "0.6.0-rc2" ] && pass "tested zip itself is left alone" || fail "tested zip modified"
