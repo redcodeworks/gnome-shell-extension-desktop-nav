@@ -24,6 +24,10 @@ export const ACTIONS = [
     ['next-workspace', 'Next workspace'],
     ['toggle-overview', 'Toggle the overview'],
     ['toggle-app-grid', 'Toggle the app grid'],
+    ['step-out', 'Step out'],
+    ['step-in', 'Step in'],
+    ['toggle-quick-settings', 'Toggle quick settings'],
+    ['toggle-calendar', 'Toggle calendar'],
     ['app-grid-prev-page', 'App grid: previous page'],
     ['app-grid-next-page', 'App grid: next page'],
 ];
@@ -31,25 +35,39 @@ export const ACTIONS = [
 // Offered only in the app grid context (they do nothing in other contexts).
 export const APP_GRID_ONLY_ACTIONS = ['app-grid-prev-page', 'app-grid-next-page'];
 
+// Offered only in the desktop and shell contexts: opening a panel menu while the overview
+// is open is UNVERIFIED (the overview holds a modal grab), so these stay hidden there
+// until a live Shell shows it works. Extend PANEL_MENU_CONTEXTS then.
+export const PANEL_MENU_ACTIONS = ['toggle-quick-settings', 'toggle-calendar'];
+export const PANEL_MENU_CONTEXTS = ['desktop', 'shell'];
+
 // Ids that exist in saved settings but are disabled in this version: they stay reserved
 // (never reuse them), a saved rule keeps them, behaves as "Do nothing" and shows as
-// "Unavailable in this version". Disabled in 0.4.1, they return in 0.5.0 with a
-// window-selection fix.
+// "Unavailable in this version". Disabled in 0.4.1 and still hidden in 0.5.0 (the window
+// move needs a window-selection fix first).
 export const RESERVED_ACTIONS = ['move-window-prev-workspace', 'move-window-next-workspace'];
 
 export const ACTION_IDS = [...ACTIONS.map(([id]) => id), ...RESERVED_ACTIONS];
 
-// The actions the editor offers in a context (page actions only in the app grid).
-export function actionsForContext(context) {
-    return ACTIONS.filter(([id]) => context === 'app-grid' || !APP_GRID_ONLY_ACTIONS.includes(id));
+// True when the action cannot be used in this context (page actions outside the app grid,
+// panel menu actions while the overview is open).
+function notInContext(action, context) {
+    return (APP_GRID_ONLY_ACTIONS.includes(action) && context !== 'app-grid') ||
+        (PANEL_MENU_ACTIONS.includes(action) && !PANEL_MENU_CONTEXTS.includes(context));
 }
 
-// 'ok', 'unavailable' (reserved id) or 'not-here' (an app grid page action outside the app
-// grid, only possible through hand-edited settings) for an action in a context.
+// The actions the editor offers in a context (page actions only in the app grid, panel
+// menu actions only on the desktop and shell lists).
+export function actionsForContext(context) {
+    return ACTIONS.filter(([id]) => !notInContext(id, context));
+}
+
+// 'ok', 'unavailable' (reserved id) or 'not-here' (an action outside its contexts, only
+// possible through hand-edited settings) for an action in a context.
 export function actionAvailability(action, context) {
     if (RESERVED_ACTIONS.includes(action))
         return 'unavailable';
-    if (APP_GRID_ONLY_ACTIONS.includes(action) && context !== 'app-grid')
+    if (notInContext(action, context))
         return 'not-here';
     return 'ok';
 }
@@ -57,8 +75,15 @@ export function actionAvailability(action, context) {
 // What the Shell should do for toggle-overview / toggle-app-grid in the current overview
 // state ('hidden', 'window-picker' or 'app-grid'): 'show' (open the overview), 'show-apps'
 // (open it on the app grid), 'hide', 'grid-on' (switch an open overview to the app grid)
-// or 'grid-off' (switch it back to the window picker). Null for an unknown input.
+// or 'grid-off' (switch it back to the window picker). Null for an unknown input. The step
+// actions (any context, any input) walk desktop -> window picker -> app grid ('step-out')
+// and back ('step-in') and never wrap: at the end the result is 'end' (nothing to do; the
+// caller still swallows the event).
 export function overviewTransition(action, state) {
+    if (action === 'step-out')
+        return {hidden: 'show', 'window-picker': 'grid-on', 'app-grid': 'end'}[state] ?? null;
+    if (action === 'step-in')
+        return {hidden: 'end', 'window-picker': 'hide', 'app-grid': 'grid-off'}[state] ?? null;
     if (action === 'toggle-overview') {
         return {hidden: 'show', 'window-picker': 'hide', 'app-grid': 'grid-off'}[state] ?? null;
     }
@@ -70,21 +95,31 @@ export function overviewTransition(action, state) {
 
 // A rule is {input, mods, action}. The input is {kind: 'button', button: N} (X11-style
 // button number) or, for the mouse wheel, {kind: 'wheel', direction, button: N} with the
-// X11 scroll numbers 4 (up) and 5 (down). Real mouse buttons never use 4 to 7 (mutter
+// X11 scroll numbers 4 (up), 5 (down), 6 (left) and 7 (right). Real mouse buttons never use 4 to 7 (mutter
 // numbers extra buttons from 8; UNVERIFIED, from memory), so the stored tuple needs no new
 // field and settings written by 0.3.0 stay valid. In settings a rule is the tuple
 // (button, modifiers, action id), type a(uss). `mods` is a normalized modifier string:
 // sorted parts joined by '+', '' for none.
 export const WHEEL_UP = 4;
 export const WHEEL_DOWN = 5;
+export const WHEEL_LEFT = 6;
+export const WHEEL_RIGHT = 7;
+
+const WHEEL_DIRECTIONS = {[WHEEL_UP]: 'up', [WHEEL_DOWN]: 'down', [WHEEL_LEFT]: 'left', [WHEEL_RIGHT]: 'right'};
 
 export function isWheelButton(button) {
-    return button === WHEEL_UP || button === WHEEL_DOWN;
+    return Number.isInteger(button) && button in WHEEL_DIRECTIONS;
 }
 
-// 'up' or 'down' for the wheel numbers, else null.
+// 'up', 'down', 'left' or 'right' for the wheel numbers, else null.
 export function wheelDirection(button) {
-    return button === WHEEL_UP ? 'up' : button === WHEEL_DOWN ? 'down' : null;
+    return isWheelButton(button) ? WHEEL_DIRECTIONS[button] : null;
+}
+
+// The wheel number of a direction name, or null.
+export function wheelButton(direction) {
+    const found = Object.entries(WHEEL_DIRECTIONS).find(([, name]) => name === direction);
+    return found ? Number(found[0]) : null;
 }
 
 export const MODIFIER_PARTS = ['alt', 'ctrl', 'shift', 'super'];
@@ -153,13 +188,13 @@ export function modifiersFromState(state, masks, strict) {
 }
 
 export function buttonName(button) {
-    return {2: 'Middle', 4: 'Wheel up', 5: 'Wheel down', 8: 'Back', 9: 'Forward'}[button] ??
+    return {2: 'Middle', 4: 'Wheel up', 5: 'Wheel down', 6: 'Wheel left', 7: 'Wheel right', 8: 'Back', 9: 'Forward'}[button] ??
         `Button ${button}`;
 }
 
 // null when (button, mods) can be bound, else a short message. The primary (1) and
 // secondary (3) buttons are refused; middle (2) needs at least one modifier; so does the
-// wheel (4, 5) unless `allowBareWheel` (a rule the user explicitly set to need none).
+// wheel (4 to 7) unless `allowBareWheel` (a rule the user explicitly set to need none).
 export function unbindableReason(button, mods, allowBareWheel = false) {
     if (!Number.isInteger(button) || button < 1)
         return 'Not a valid mouse button.';
@@ -283,17 +318,21 @@ export function wheelConfig(threshold, minInterval) {
     };
 }
 
-// A scroll event reduced to {dir: 'up'|'down', amount, kind: 'discrete'|'smooth'}, or null
-// when it is not a vertical scroll (horizontal, tilt wheel, empty smooth delta).
+// A scroll event reduced to {dir: 'up'|'down'|'left'|'right', amount, kind:
+// 'discrete'|'smooth'}, or null (empty or unusable smooth delta, unknown direction).
 // `direction` is 'up', 'down', 'left', 'right' or 'smooth' (the Clutter.ScrollDirection
-// names); `dx`, `dy` are the smooth deltas (positive dy = down, UNVERIFIED sign).
+// names); `dx`, `dy` are the smooth deltas (positive dy = down, positive dx = right,
+// UNVERIFIED signs). A smooth event counts on the axis with the larger delta, vertical on
+// a tie.
 export function scrollInput(direction, dx, dy) {
-    if (direction === 'up' || direction === 'down')
+    if (['up', 'down', 'left', 'right'].includes(direction))
         return {dir: direction, amount: 1, kind: 'discrete'};
     if (direction !== 'smooth' || !Number.isFinite(dx) || !Number.isFinite(dy))
         return null;
-    if (dy === 0 || Math.abs(dx) > Math.abs(dy))
+    if (dx === 0 && dy === 0)
         return null;
+    if (Math.abs(dx) > Math.abs(dy))
+        return {dir: dx < 0 ? 'left' : 'right', amount: Math.abs(dx), kind: 'smooth'};
     return {dir: dy < 0 ? 'up' : 'down', amount: Math.abs(dy), kind: 'smooth'};
 }
 
@@ -373,7 +412,7 @@ export function hexState(state) {
     return Number.isInteger(state) ? `0x${(state >>> 0).toString(16)}` : 'unknown';
 }
 
-// 'wheel-up'/'wheel-down' for the wheel numbers, else the button number.
+// 'wheel-up', 'wheel-down', 'wheel-left', 'wheel-right' for the wheel numbers, else the button number.
 export function inputLabel(button) {
     const direction = wheelDirection(button);
     return direction ? `wheel-${direction}` : String(button);
