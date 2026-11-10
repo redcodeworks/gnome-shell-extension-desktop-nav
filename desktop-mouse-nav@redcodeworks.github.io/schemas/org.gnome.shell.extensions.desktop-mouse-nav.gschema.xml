@@ -4,32 +4,44 @@
     <key name="rules-desktop" type="a(uss)">
       <default>[(8, '', 'prev-workspace'), (9, '', 'next-workspace')]</default>
       <summary>Rules on the empty desktop</summary>
-      <description>Used when the pointer is over the empty desktop; if none matches, the shell rules are tried. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
+      <description>Used when the pointer is over the empty desktop; if none matches, the shell rules are tried. Each rule is (button number, modifiers, action id); the mouse wheel is button 4 (up) and 5 (down). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
     </key>
     <key name="rules-shell" type="a(uss)">
       <default>[]</default>
       <summary>Rules on shell surfaces</summary>
-      <description>Used when the pointer is over a Shell surface such as the top bar. Presses over application windows never reach the extension. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
+      <description>Used when the pointer is over a Shell surface such as the top bar. Presses over application windows never reach the extension. Each rule is (button number, modifiers, action id); the mouse wheel is button 4 (up) and 5 (down). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
     </key>
     <key name="rules-overview" type="a(uss)">
       <default>[]</default>
       <summary>Rules in the overview</summary>
-      <description>Used while the overview is open. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
+      <description>Used while the overview is open. Each rule is (button number, modifiers, action id); the mouse wheel is button 4 (up) and 5 (down). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
     </key>
     <key name="rules-app-grid" type="a(uss)">
       <default>[]</default>
       <summary>Rules in the app grid</summary>
-      <description>Used while the app grid is showing. Previous and next workspace turn the pages of the grid. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
+      <description>Used while the app grid is showing. Previous and next workspace turn the pages of the grid. Each rule is (button number, modifiers, action id); the mouse wheel is button 4 (up) and 5 (down). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
     </key>
     <key name="wrap-workspaces" type="b">
       <default>false</default>
       <summary>Wrap around workspaces</summary>
       <description>Previous on the first workspace goes to the last one, and next on the last goes to the first. Also applies to moving a window. Does not apply to app grid pages.</description>
     </key>
+    <key name="wheel-threshold" type="d">
+      <range min="0.1" max="20"/>
+      <default>1.0</default>
+      <summary>Scroll needed per wheel action</summary>
+      <description>How much wheel scrolling one action needs, in notches (1 = one click of a notched wheel). The amounts of events in one direction add up until this value is reached.</description>
+    </key>
+    <key name="wheel-min-interval" type="d">
+      <range min="50" max="3000"/>
+      <default>400</default>
+      <summary>Pause between wheel actions (ms)</summary>
+      <description>After a wheel action, wheel events are ignored for this many milliseconds, so one burst of scrolling runs one action.</description>
+    </key>
     <key name="debug-log" type="b">
       <default>false</default>
       <summary>Log button presses</summary>
-      <description>For troubleshooting: write one line per mouse button press to the journal.</description>
+      <description>For troubleshooting: write one line per mouse button press or wheel event to the journal.</description>
     </key>
   </schema>
 </schemalist>
