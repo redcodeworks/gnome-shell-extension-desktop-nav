@@ -12,7 +12,7 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {
-    ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS, WHEEL_DOWN,
+    ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS, WHEEL_DOWN, WHEEL_LEFT, WHEEL_RIGHT,
     WHEEL_SETTINGS, WHEEL_UP, WORKSPACE_SWITCHES, actionAvailability, actionsForContext, buttonName, findDuplicate, isWheelButton,
     makeRule, modifiersFromState, parseRules, rulesKey, serializeRules, unbindableReason,
 } from './actions.js';
@@ -151,7 +151,7 @@ function showRuleDialog(window, context, existingRules, onAdd) {
         detected = button;
         const wheel = isWheelButton(button);
         buttonRow.subtitle = wheel
-            ? 'Mouse wheel, as your system reports it (natural scrolling flips up and down)'
+            ? 'Mouse wheel, as your system reports it (natural scrolling flips the directions)'
             : buttonName(button) + (button > 9 || button === 2 ? '' : ` (button ${button})`);
         buttonRow.title = wheel ? buttonName(button) : 'Button';
         const held = MODIFIER_IDS.indexOf(modifiersFromState(state, GTK_MASKS, false));
@@ -188,6 +188,11 @@ function showRuleDialog(window, context, existingRules, onAdd) {
             return;
         const button = gesture.get_current_button();
         const state = gesture.get_current_event_state() & Gtk.accelerator_get_default_mod_mask();
+        if (isWheelButton(button)) {
+            // 4 to 7 are the wheel numbers, never real buttons; do not turn a click into a wheel rule.
+            showStatus('Not a usable mouse button.');
+            return;
+        }
         if (button === 1 || button === 3) {
             // Primary and secondary are refused; this click may be on Cancel, so it is not claimed.
             showStatus(unbindableReason(button, ''));
@@ -197,15 +202,19 @@ function showRuleDialog(window, context, existingRules, onAdd) {
     });
     box.add_controller(gesture);
 
-    // The wheel: the first vertical scroll event picks Wheel up or down, as GNOME reports
-    // it (so it follows the natural scrolling setting). Horizontal scrolling is ignored.
-    const scroll = new Gtk.EventControllerScroll({flags: Gtk.EventControllerScrollFlags.VERTICAL});
+    // The wheel: the first scroll event picks Wheel up, down, left or right (the axis with
+    // the larger delta, vertical on a tie), as GNOME reports it (so it follows the natural
+    // scrolling setting). Positive dx = right is the GTK convention (UNVERIFIED here).
+    const scroll = new Gtk.EventControllerScroll({flags: Gtk.EventControllerScrollFlags.BOTH_AXES});
     scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
-    scroll.connect('scroll', (_controller, _dx, dy) => {
-        if (detected !== null || dy === 0)
+    scroll.connect('scroll', (_controller, dx, dy) => {
+        if (detected !== null || (dx === 0 && dy === 0))
             return false;
         const state = scroll.get_current_event_state() & Gtk.accelerator_get_default_mod_mask();
-        detect(dy < 0 ? WHEEL_UP : WHEEL_DOWN, state);
+        if (Math.abs(dx) > Math.abs(dy))
+            detect(dx < 0 ? WHEEL_LEFT : WHEEL_RIGHT, state);
+        else
+            detect(dy < 0 ? WHEEL_UP : WHEEL_DOWN, state);
         return true;
     });
     box.add_controller(scroll);

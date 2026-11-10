@@ -14,9 +14,9 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
 import {
-    CONTEXTS, WHEEL_DOWN, WHEEL_UP, actionAvailability, anyRuleUsesButton, debugLine, findRule,
+    CONTEXTS, actionAvailability, anyRuleUsesButton, debugLine, findRule,
     isEmulatedScroll, modifiersFromState, newWheelState, pageTarget, parseRules, overviewTransition, pointerContext,
-    resolveAction, rulesKey, scrollInput, scrollMeta, wheelConfig, wheelNote, wheelReset, wheelStep,
+    resolveAction, rulesKey, scrollInput, scrollMeta, wheelButton, wheelConfig, wheelNote, wheelReset, wheelStep,
     workspaceTarget,
 } from './actions.js';
 
@@ -128,9 +128,9 @@ export default class DesktopMouseNav extends Extension {
         return Clutter.EVENT_STOP;
     }
 
-    // Wheel events: reduced to up/down (horizontal scrolling is never touched), then the
-    // same rule lookup as a button press (the wheel is button 4 and 5), then the
-    // accumulator decides whether the action runs. A matching event is always swallowed
+    // Wheel events: reduced to up/down/left/right (the dominant axis for smooth events),
+    // then the same rule lookup as a button press (the wheel is button 4 to 7), then the
+    // accumulator (one state for all four directions, one rate limit) decides whether the action runs. A matching event is always swallowed
     // (also while it only accumulates or is rate limited), so the Shell does not also act
     // on it; everything else propagates.
     _onScroll(event) {
@@ -161,7 +161,7 @@ export default class DesktopMouseNav extends Extension {
         if (!input)
             return Clutter.EVENT_PROPAGATE;
 
-        const button = input.dir === 'up' ? WHEEL_UP : WHEEL_DOWN;
+        const button = wheelButton(input.dir);
         input.time = event.get_time();
         input.meta = meta;
         const info = anyRuleUsesButton(this._rules, button)
@@ -326,14 +326,19 @@ export default class DesktopMouseNav extends Extension {
             return this._switchWorkspace(1);
         case 'toggle-overview':
         case 'toggle-app-grid':
+        case 'step-out':
+        case 'step-in':
             this._toggleOverview(action);
             return 'ran';
+        case 'toggle-quick-settings':
+            return this._togglePanelMenu('quickSettings', null);
+        case 'toggle-calendar':
+            return this._togglePanelMenu('dateMenu', 'toggleCalendar');
         case 'app-grid-prev-page':
         case 'app-grid-next-page':
             // Paged by resolveAction in the app grid only; elsewhere nothing happens.
             return 'propagated';
-        // Disabled in 0.4.1, returns in 0.5.0 with a window-selection fix (the ids stay
-        // reserved; a saved rule with one of them is stopped in _handlePress):
+        // Disabled in 0.4.1 and still hidden in 0.5.0 (the ids stay reserved; a saved rule with one of them is stopped in _handlePress):
         // case 'move-window-prev-workspace':
         //     return this._moveFocusedWindow(-1);
         // case 'move-window-next-workspace':
@@ -343,7 +348,7 @@ export default class DesktopMouseNav extends Extension {
         }
     }
 
-    // Overview and app grid toggles switch between the states when the overview is open
+    // Overview and app grid toggles and the step actions: switch between the states when the overview is open
     // (the Shell's own Super+A route: the dash's show-apps button). Every private member is
     // guarded; a missing one falls back to showApps()/hide() and sets `_fallback` for the
     // debug line, so a Shell update degrades instead of throwing.
@@ -351,6 +356,10 @@ export default class DesktopMouseNav extends Extension {
         const visible = Main.overview.visible;
         const state = !visible ? 'hidden' : this._appGridShowing() ? 'app-grid' : 'window-picker';
         switch (overviewTransition(action, state)) {
+        case 'end':
+            // Step out on the app grid, step in on the desktop: nothing to do, no wrap.
+            this._fallback = 'at-end';
+            break;
         case 'show':
             Main.overview.show();
             break;
@@ -380,6 +389,25 @@ export default class DesktopMouseNav extends Extension {
         }
     }
 
+    // Toggles a top bar menu (the quick settings, the date/calendar menu). Every member is
+    // guarded; a missing one sets `_fallback` for the debug line and the press propagates.
+    // UNVERIFIED on a live Shell. `calendarMethod` is Panel's own toggle for the calendar,
+    // used when the item's menu is not usable.
+    _togglePanelMenu(name, calendarMethod) {
+        const panel = Main.panel;
+        const menu = panel?.statusArea?.[name]?.menu;
+        if (menu && typeof menu.toggle === 'function') {
+            menu.toggle();
+            return 'ran';
+        }
+        if (calendarMethod && typeof panel?.[calendarMethod] === 'function') {
+            panel[calendarMethod]();
+            return 'ran';
+        }
+        this._fallback = 'no-panel-menu';
+        return 'propagated';
+    }
+
     // The workspace `step` away from the active one, or null (ends, or one workspace).
     _neighborWorkspace(step) {
         const manager = global.workspace_manager;
@@ -396,7 +424,7 @@ export default class DesktopMouseNav extends Extension {
         return 'ran';
     }
 
-    // Disabled in 0.4.1, returns in 0.5.0 with a window-selection fix:
+    // Disabled in 0.4.1 and still hidden in 0.5.0 (needs a window-selection fix):
     // _moveFocusedWindow(step) {
     //     const window = global.display.focus_window;
     //     if (!window || window.get_window_type() !== Meta.WindowType.NORMAL ||

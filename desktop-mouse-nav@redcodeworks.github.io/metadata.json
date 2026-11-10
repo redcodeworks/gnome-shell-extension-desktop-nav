@@ -1,9 +1,9 @@
 {
   "name": "Desktop Mouse Nav",
-  "description": "Run an action of your choice with mouse buttons: by default, the Back and Forward buttons switch workspaces when the pointer is over the empty desktop. Add your own rules per context, with modifiers, including mouse wheel rules.",
+  "description": "Run an action of your choice with mouse buttons: by default, the Back and Forward buttons switch workspaces when the pointer is over the empty desktop. Add your own rules per context, with modifiers, including mouse wheel rules (vertical and horizontal), step in and out of the overview, and top bar menus.",
   "uuid": "desktop-mouse-nav@redcodeworks.github.io",
   "shell-version": ["51"],
-  "version-name": "0.4.1",
+  "version-name": "0.5.0",
   "settings-schema": "org.gnome.shell.extensions.desktop-mouse-nav",
   "url": "https://github.com/redcodeworks/gnome-shell-extension-desktop-nav"
 }

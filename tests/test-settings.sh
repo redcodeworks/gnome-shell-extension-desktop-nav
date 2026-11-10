@@ -57,8 +57,30 @@ const out = {
     .concat([a.unbindableReason(4, '', true), a.unbindableReason(2, '', true)]),
   wheelParsed: a.parseRules([[4, 'ctrl', 'next-workspace'], [5, '', 'prev-workspace'], [4, 'hyper', 'none'], [6, '', 'none'], [7, 'alt', 'none']])
     .map(r => [r.input.kind, r.input.direction ?? '-', r.input.button, r.mods, r.action].join(',')),
-  kinds: [8, 4, 5, 2].map(b => a.makeRule(b, 'ctrl', 'none').input.kind),
-  wheelDir: [4, 5, 8].map(a.wheelDirection),
+  kinds: [8, 4, 5, 2, 6, 7].map(b => a.makeRule(b, 'ctrl', 'none').input.kind),
+  wheelDir: [4, 5, 6, 7, 8, 3, 'x', null].map(a.wheelDirection),
+  wheelBtn: ['up', 'down', 'left', 'right', 'smooth', undefined].map(a.wheelButton),
+  wheelNames: [6, 7].map(a.buttonName),
+  hUnbind: [[6, ''], [7, ''], [6, 'ctrl'], [7, 'alt+shift']].map(([b, m]) => a.unbindableReason(b, m)).concat([a.unbindableReason(7, '', true)]),
+  hWlog: [a.debugLine(true, 6, 0x4, 'ctrl', 'desktop', null, 'held', 'accumulating'), a.debugLine(true, 7, 0, '', 'shell', null, 'ignored', 'no-rule-uses-button')],
+  hRun: run([ev('left', 1, 'discrete', 1000), ev('left', 1, 'discrete', 1100), ev('left', 1, 'discrete', 1500)]),
+  hSmooth: run([0.4, 0.4, 0.4].map((x, i) => ev('right', x, 'smooth', 1000 + i * 16))),
+  hSwitchAxis: run([ev('right', 0.6, 'smooth', 1000), ev('down', 0.6, 'smooth', 1020), ev('down', 0.6, 'smooth', 1040)]),
+  hRateShared: run([ev('left', 1, 'discrete', 1000), ev('up', 1, 'discrete', 1100), ev('right', 1, 'discrete', 1500)]),
+  hRoundtrip: JSON.stringify(a.serializeRules(a.parseRules([[6, 'Ctrl', 'step-out'], [7, 'ctrl', 'step-in']]))),
+  hMatch: [a.matchRule([R(6, 'ctrl', 'none'), R(7, 'ctrl', 'none')], 7, 'ctrl'), a.matchRule([R(6, 'ctrl', 'none')], 7, 'ctrl'), a.anyRuleUsesButton({desktop: [R(7, 'ctrl', 'none')]}, 7)],
+  steps: [['step-out', 'hidden'], ['step-out', 'window-picker'], ['step-out', 'app-grid'], ['step-in', 'app-grid'], ['step-in', 'window-picker'],
+    ['step-in', 'hidden'], ['step-out', 'x'], ['step-in', undefined]].map(([x, st]) => a.overviewTransition(x, st)),
+  stepWalk: (() => { // step out from the desktop until the end, then back: no wrap
+    let st = 'hidden'; const out = [];
+    const next = {show: 'window-picker', 'grid-on': 'app-grid', hide: 'hidden', 'grid-off': 'window-picker', end: null};
+    for (const act of ['step-out', 'step-out', 'step-out', 'step-in', 'step-in', 'step-in']) {
+      const t = a.overviewTransition(act, st); out.push(t); if (next[t]) st = next[t];
+    }
+    return out.concat(st);
+  })(),
+  panelCtx: Object.fromEntries(a.CONTEXTS.map(c => [c, a.actionAvailability('toggle-quick-settings', c) + '/' + a.actionAvailability('toggle-calendar', c)])),
+  stepCtx: a.CONTEXTS.map(c => a.actionAvailability('step-out', c) + '/' + a.actionAvailability('step-in', c)),
   wheelMatch: [a.matchRule([R(4, 'ctrl', 'none'), R(5, '', 'none')], 4, 'ctrl'), a.matchRule([R(4, 'ctrl', 'none')], 5, 'ctrl'), a.matchRule([R(4, 'ctrl', 'none')], 4, ''),
     a.matchRule([R(5, '', 'none')], 5, '')],
   wheelUses: [a.anyRuleUsesButton({desktop: [R(4, 'ctrl', 'none')]}, 4), a.anyRuleUsesButton({desktop: [R(4, 'ctrl', 'none')]}, 5)],
@@ -66,7 +88,8 @@ const out = {
   wheelFind: (() => { const f = a.findRule({desktop: [], shell: [R(5, 'ctrl', 'next-workspace')], overview: [], 'app-grid': []}, 'desktop', 5, 'ctrl'); return f ? `${f.context}:${f.index}` : null; })(),
   roundtripWheel: JSON.stringify(a.serializeRules(a.parseRules([[4, 'Ctrl', 'prev-workspace'], [5, '', 'none']]))),
   scrollIn: [['up', 0, 0], ['down', 0, 0], ['left', 0, 0], ['right', 0, 0], ['smooth', 0, -0.4], ['smooth', 0, 2.5], ['smooth', 0.2, 0.2],
-    ['smooth', 3, 1], ['smooth', 0, 0], ['smooth', NaN, 1], ['bogus', 0, 1], [undefined, 0, 0]]
+    ['smooth', 3, 1], ['smooth', 0, 0], ['smooth', NaN, 1], ['bogus', 0, 1], [undefined, 0, 0],
+    ['smooth', -3, 1], ['smooth', -0.4, 0], ['smooth', 0.5, 0.5], ['smooth', -2, -2.5]]
     .map(([d, x, y]) => { const r = a.scrollInput(d, x, y); return r ? `${r.dir}:${r.amount}:${r.kind}` : null; }),
   cfg: [a.wheelConfig(1, 400), a.wheelConfig(0, 10), a.wheelConfig(99, 99999), a.wheelConfig(NaN, 'x'), a.wheelConfig(0.5, 250)].map(c => `${c.threshold}/${c.minInterval}`),
   // one notch fires at once; the next waits for the interval (events inside it are dropped and clear the sum)
@@ -212,15 +235,30 @@ eq '.wheelKeys|join(" ")' "wheel-threshold wheel-min-interval" "wheel setting ke
 eq '.wheelLimits|map(join(":"))|join(" ")' "wheel-threshold:0.1:20 wheel-min-interval:50:3000" "wheel setting limits"
 grep -q '<range min="0.1" max="20"/>' "$xml" && grep -q '<range min="50" max="3000"/>' "$xml" && pass "schema ranges equal the limits in actions.js" || fail "schema ranges differ from WHEEL_SETTINGS"
 eq '.wheelUnbind|map(tostring)|join("|")' 'Wheel rules need a modifier unless "Require a modifier" is turned off.|Wheel rules need a modifier unless "Require a modifier" is turned off.|null|null|Unknown modifier.|null|The middle button needs at least one modifier.' "wheel rules need a modifier by default; a stored bare wheel rule is the explicit opt-out (middle still refused)"
-eq '.wheelParsed|join(" ")' "wheel,up,4,ctrl,next-workspace wheel,down,5,,prev-workspace button,-,6,,none button,-,7,alt,none" "parseRules keeps wheel rules (also without modifier, the explicit choice) and 6 and 7 stay plain buttons"
-eq '.kinds|join(" ")' "button wheel wheel button" "buttons 4 and 5 are wheel inputs, others buttons"
-eq '.wheelDir|map(tostring)|join(" ")' "up down null" "wheel direction of 4, 5, others"
+eq '.wheelParsed|join(" ")' "wheel,up,4,ctrl,next-workspace wheel,down,5,,prev-workspace wheel,left,6,,none wheel,right,7,alt,none" "parseRules keeps wheel rules (also without modifier, the explicit choice); 6 and 7 are the horizontal wheel since 0.5.0"
+eq '.kinds|join(" ")' "button wheel wheel button wheel wheel" "buttons 4 to 7 are wheel inputs, others buttons"
+eq '.wheelDir|map(tostring)|join(" ")' "up down left right null null null null" "wheel direction of 4 to 7, others"
+eq '.wheelBtn|map(tostring)|join(" ")' "4 5 6 7 null null" "wheel number of a direction name"
+eq '.wheelNames|join("|")' "Wheel left|Wheel right" "horizontal wheel names"
+eq '.hUnbind|map(tostring)|join("|")' 'Wheel rules need a modifier unless "Require a modifier" is turned off.|Wheel rules need a modifier unless "Require a modifier" is turned off.|null|null|null' "horizontal wheel rules need a modifier by default like the vertical ones"
+eq '.hWlog[0]' "desktop-mouse-nav: button=wheel-left state=0x4 mods=ctrl context=desktop match=no rule=none action=none result=held reason=accumulating" "debug line names the horizontal wheel"
+eq '.hWlog[1]' "desktop-mouse-nav: button=wheel-right state=0x0 mods=none context=shell match=no rule=none action=none result=ignored reason=no-rule-uses-button" "debug line for wheel right"
+eq .hRun "F.F" "horizontal discrete events use the same accumulator and rate limit (one fires, the event inside the interval is dropped, the next after it counts)"
+eq .hSmooth "..F" "horizontal smooth deltas add up like vertical ones (0.4 + 0.4 + 0.4 reaches 1.0)"
+eq .hSwitchAxis "..F" "a change of axis starts the sum again (right 0.6 is not added to down 0.6 + 0.6)"
+eq .hRateShared "F.F" "the rate limit is shared by all four directions (a vertical event right after a horizontal action is dropped)"
+eq .hRoundtrip '[[6,"ctrl","step-out"],[7,"ctrl","step-in"]]' "horizontal wheel rules round-trip as the (button, modifiers, action) tuple"
+eq '.hMatch|map(tostring)|join(" ")' "1 -1 true" "horizontal wheel rules match direction and exact modifiers"
+eq '.steps|map(tostring)|join(" ")' "show grid-on end grid-off hide end null null" "step out: desktop -> picker -> grid, end at the grid; step in the reverse, end at the desktop"
+eq '.stepWalk|map(tostring)|join(" ")' "show grid-on end grid-off hide end hidden" "stepping out to the end and back in never wraps"
+eq '.stepCtx|join(" ")' "ok/ok ok/ok ok/ok ok/ok" "step actions are offered in every context"
+eq '.panelCtx|to_entries|map("\(.key)=\(.value)")|join(" ")' "desktop=ok/ok shell=ok/ok overview=not-here/not-here app-grid=not-here/not-here" "panel menu actions only on the desktop and shell lists (opening a menu over the overview is unverified)"
 eq '.wheelMatch|map(tostring)|join(" ")' "0 -1 -1 0" "wheel rules match direction and exact modifiers"
 eq '.wheelUses|map(tostring)|join(" ")' "true false" "anyRuleUsesButton tells wheel up from wheel down"
 eq .wheelDup 0 "a second wheel rule with the same direction and modifiers is a duplicate"
 eq .wheelFind "shell:0" "wheel rules use the same context fallback (desktop falls back to shell)"
 eq .roundtripWheel '[[4,"ctrl","prev-workspace"],[5,"","none"]]' "wheel rules round-trip through parse and serialize (the 0.3.0 tuple shape)"
-eq '.scrollIn|map(tostring)|join(" ")' "up:1:discrete down:1:discrete null null up:0.4:smooth down:2.5:smooth down:0.2:smooth null null null null null" "scroll input: up and down, horizontal and tilt ignored, smooth by delta (vertical wins ties), bad input null"
+eq '.scrollIn|map(tostring)|join(" ")' "up:1:discrete down:1:discrete left:1:discrete right:1:discrete up:0.4:smooth down:2.5:smooth down:0.2:smooth right:3:smooth null null null null left:3:smooth left:0.4:smooth down:0.5:smooth up:2.5:smooth" "scroll input: all four directions, smooth by the dominant axis (vertical wins ties), bad input null"
 eq '.cfg|join(" ")' "1/400 0.1/50 20/3000 1/400 0.5/250" "wheelConfig clamps to the limits and falls back to defaults"
 eq .oneNotch F "one notch fires at once"
 eq .burst "F...." "a burst fires once; events inside the interval are dropped"
@@ -285,14 +323,14 @@ eq '.log[4]' "desktop-mouse-nav: button=10 state=0x40 mods=super context=desktop
 eq '.log[5]' "desktop-mouse-nav: button=8 state=0x4000000 mods=super context=desktop match=yes rule=desktop[0] action=next-workspace result=ran" "debug line for a Super press that ran"
 
 # 0.4.1: action list per context, reserved (disabled) ids, overview and app grid transitions
-eq '.offered|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid app-grid-prev-page app-grid-next-page" "offered actions"
+eq '.offered|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid step-out step-in toggle-quick-settings toggle-calendar app-grid-prev-page app-grid-next-page" "offered actions"
 eq '.reserved|join(" ")' "move-window-prev-workspace move-window-next-workspace" "the window move ids stay reserved"
 eq '[.ids[]|select(startswith("move-window"))]|length' 2 "reserved ids are still known ids (saved rules are kept)"
 eq '.offered|map(select(startswith("move-window")))|length' 0 "the editor does not offer the window move actions"
-eq '.ctxActions.desktop|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid" "desktop: no page actions"
-eq '.ctxActions.shell|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid" "shell: no page actions"
-eq '.ctxActions.overview|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid" "overview: no page actions"
-eq '.ctxActions["app-grid"]|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid app-grid-prev-page app-grid-next-page" "app grid: all, with the page actions"
+eq '.ctxActions.desktop|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid step-out step-in toggle-quick-settings toggle-calendar" "desktop: no page actions, with the panel menu toggles"
+eq '.ctxActions.shell|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid step-out step-in toggle-quick-settings toggle-calendar" "shell: no page actions, with the panel menu toggles"
+eq '.ctxActions.overview|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid step-out step-in" "overview: no page actions, no panel menu toggles (unverified there), the step actions"
+eq '.ctxActions["app-grid"]|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid step-out step-in app-grid-prev-page app-grid-next-page" "app grid: the step and page actions, no panel menu toggles"
 eq '.avail|join(" ")' "unavailable unavailable not-here ok ok ok" "action availability: reserved ids unavailable, page actions only in the app grid"
 eq '.savedReserved|join(" ")' "move-window-prev-workspace move-window-next-workspace" "a saved rule with a reserved id is kept by parseRules (shown as unavailable, not deleted)"
 eq '.trans|map(tostring)|join(" ")' "show hide grid-off show-apps grid-on grid-off null null" "overview and app grid toggles: state to next step (switch between picker and grid when open)"
@@ -315,6 +353,11 @@ grep -q "SUPER_MASK" "$ext/extension.js" && grep -q "MOD4_MASK" "$ext/extension.
 grep -q "Clutter.EventType.SCROLL" "$ext/extension.js" && grep -q "get_scroll_direction" "$ext/extension.js" && grep -q "wheelStep" "$ext/extension.js" && pass "extension.js handles scroll events through the accumulator" || fail "wheel handling missing in extension.js"
 grep -q "get_double('wheel-threshold')" "$ext/extension.js" && grep -q "get_double('wheel-min-interval')" "$ext/extension.js" && pass "extension.js caches the wheel settings" || fail "wheel settings not cached"
 grep -q "EventControllerScroll" "$ext/prefs.js" && grep -q "Require a modifier" "$ext/prefs.js" && grep -q "WHEEL_SETTINGS" "$ext/prefs.js" && pass "prefs.js detects the wheel, has the modifier switch and the wheel settings" || fail "wheel editor parts missing in prefs.js"
+
+# 0.5.0: step actions share the guarded dash route, panel menus are guarded, horizontal wheel in both files
+grep -q "case 'step-out':" "$ext/extension.js" && grep -q "case 'end':" "$ext/extension.js" && pass "extension.js runs the step actions through _toggleOverview and stops at the ends" || fail "step actions missing in extension.js"
+grep -q "_togglePanelMenu" "$ext/extension.js" && grep -q "no-panel-menu" "$ext/extension.js" && grep -q "typeof menu.toggle === 'function'" "$ext/extension.js" && pass "extension.js guards the panel menu members (debug reason no-panel-menu)" || fail "panel menu guard missing"
+grep -q "wheelButton(input.dir)" "$ext/extension.js" && grep -q "BOTH_AXES" "$ext/prefs.js" && grep -q "WHEEL_LEFT" "$ext/prefs.js" && pass "horizontal wheel: extension.js maps all four directions, the dialog detects both axes" || fail "horizontal wheel parts missing"
 
 # prefs.js must not use binding mappings (their GJS callbacks crashed the prefs process)
 grep -nE "bind_with_mapping|\.bind\([^)]*,[^)]*,[^)]*,[^)]*," "$ext/prefs.js" >/dev/null && fail "prefs.js uses a binding mapping" || pass "prefs.js uses no binding mapping"
