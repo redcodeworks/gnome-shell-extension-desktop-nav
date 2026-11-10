@@ -184,8 +184,8 @@ grep -q "<schema id=\"$(d .schema)\"" "$xml" && pass "schema XML declares that i
 
 # keys: each key, its type and its default, parsed from the XML
 awk -F'"' '/<key name=/ {k=$2; t=$4} /<default>/ {gsub(/.*<default>|<\/default>.*/, ""); print k "|" t "|" $0}' "$xml" | sort > "$tmp/defaults"
-want=$'debug-log|b|false\nrules-app-grid|a(uss)|[]\nrules-desktop|a(uss)|[(8, \x27\x27, \x27prev-workspace\x27), (9, \x27\x27, \x27next-workspace\x27)]\nrules-overview|a(uss)|[]\nrules-shell|a(uss)|[]\nwheel-min-interval|d|400\nwheel-threshold|d|1.0\nwrap-workspaces|b|false'
-[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema keys and defaults: four a(uss) rule keys (desktop 8 prev, 9 next; others empty), wheel threshold 1.0 and interval 400 ms, wrap and debug off, no overview or app grid switches" || { fail "schema keys and defaults"; cat "$tmp/defaults" >&2; }
+want=$'debug-log|b|false\nrules-app-grid|a(uss)|[(4, \x27alt\x27, \x27step-in\x27), (5, \x27alt\x27, \x27step-out\x27), (6, \x27alt\x27, \x27app-grid-prev-page\x27), (7, \x27alt\x27, \x27app-grid-next-page\x27)]\nrules-desktop|a(uss)|[(8, \x27\x27, \x27prev-workspace\x27), (9, \x27\x27, \x27next-workspace\x27), (4, \x27alt\x27, \x27step-in\x27), (5, \x27alt\x27, \x27step-out\x27), (6, \x27alt\x27, \x27prev-workspace\x27), (7, \x27alt\x27, \x27next-workspace\x27)]\nrules-overview|a(uss)|[(4, \x27alt\x27, \x27step-in\x27), (5, \x27alt\x27, \x27step-out\x27), (6, \x27alt\x27, \x27prev-workspace\x27), (7, \x27alt\x27, \x27next-workspace\x27)]\nrules-shell|a(uss)|[(4, \x27alt\x27, \x27step-in\x27), (5, \x27alt\x27, \x27step-out\x27), (6, \x27alt\x27, \x27prev-workspace\x27), (7, \x27alt\x27, \x27next-workspace\x27)]\nwheel-min-interval|d|400\nwheel-threshold|d|1.0\nwrap-workspaces|b|false'
+[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema keys and defaults: four a(uss) rule keys (desktop: 8 prev, 9 next and the four Alt wheel rules; shell and overview: the four Alt wheel rules; app grid: Alt wheel with page actions left and right), wheel threshold 1.0 and interval 400 ms, wrap and debug off, no overview or app grid switches" || { fail "schema keys and defaults"; cat "$tmp/defaults" >&2; }
 for old in desktop-back desktop-forward shell-back shell-forward; do
     grep -q "\"$old\"" "$xml" && fail "old key $old still in the schema" || pass "old key $old is gone"
 done
@@ -196,13 +196,69 @@ if command -v glib-compile-schemas >/dev/null && command -v gsettings >/dev/null
     mkdir "$tmp/schemadir"; cp "$xml" "$tmp/schemadir/"; glib-compile-schemas --strict "$tmp/schemadir"
     gs() { GSETTINGS_BACKEND=memory gsettings --schemadir "$tmp/schemadir" "$@"; }
     sid=$(d .schema)
-    [ "$(gs get "$sid" rules-desktop | sed 's/uint32 //')" = "[(8, '', 'prev-workspace'), (9, '', 'next-workspace')]" ] && pass "gsettings reads the desktop defaults back" || fail "gsettings desktop default: $(gs get "$sid" rules-desktop)"
-    for k in rules-shell rules-overview rules-app-grid; do
-        [ "$(gs get "$sid" $k)" = "@a(uss) []" ] && pass "gsettings reads $k as empty" || fail "gsettings $k: $(gs get "$sid" $k)"
-    done
+    want_gs() { [ "$(gs get "$sid" "$1" | sed 's/uint32 //g')" = "$2" ] && pass "gsettings reads $1 default back" || fail "gsettings $1 default: $(gs get "$sid" "$1")"; }
+    want_gs rules-desktop "[(8, '', 'prev-workspace'), (9, '', 'next-workspace'), (4, 'alt', 'step-in'), (5, 'alt', 'step-out'), (6, 'alt', 'prev-workspace'), (7, 'alt', 'next-workspace')]"
+    want_gs rules-shell "[(4, 'alt', 'step-in'), (5, 'alt', 'step-out'), (6, 'alt', 'prev-workspace'), (7, 'alt', 'next-workspace')]"
+    want_gs rules-overview "[(4, 'alt', 'step-in'), (5, 'alt', 'step-out'), (6, 'alt', 'prev-workspace'), (7, 'alt', 'next-workspace')]"
+    want_gs rules-app-grid "[(4, 'alt', 'step-in'), (5, 'alt', 'step-out'), (6, 'alt', 'app-grid-prev-page'), (7, 'alt', 'app-grid-next-page')]"
 else
     echo "skip gsettings read-back (glib-compile-schemas or gsettings not installed)"
 fi
+
+# 0.6.0 default rules: parsed from the schema XML, run through the editor's rule model
+cat > "$tmp/js/defaults.mjs" <<'JS'
+import fs from 'node:fs';
+import * as a from './actions.mjs';
+const xml = fs.readFileSync(process.argv[2], 'utf8');
+const defaults = {};
+for (const c of a.CONTEXTS) {
+  const m = xml.match(new RegExp(`<key name="${a.rulesKey(c)}" type="a\\(uss\\)">\\s*<default>\\[(.*)\\]</default>`));
+  const tuples = [];
+  for (const t of (m ? m[1] : '').matchAll(/\((\d+), '([^']*)', '([^']*)'\)/g)) tuples.push([Number(t[1]), t[2], t[3]]);
+  defaults[c] = tuples;
+}
+const rules = Object.fromEntries(a.CONTEXTS.map(c => [c, a.parseRules(defaults[c])]));
+const wheel = c => rules[c].filter(r => r.input.kind === 'wheel').map(r => `${r.input.direction}:${r.mods}:${r.action}`).join(' ');
+const W = {threshold: 1, minInterval: 400};
+// a notch of the wheel with the given modifiers, through the same lookup the extension uses
+const press = (ctx, button, mods) => { const f = a.findRule(rules, ctx, button, mods); if (!f) return 'none-found'; const r = a.resolveAction(f.rule.action, ctx); return r.type === 'page' ? (r.step < 0 ? 'app-grid-prev-page' : 'app-grid-next-page') : r.id; };
+const fire = events => { let st = a.newWheelState(); return events.map(([dir, t]) => { const r = a.wheelStep(st, {dir, amount: 1, kind: 'discrete', time: t}, W); st = r.state; return r.fire ? 'F' : r.reason; }).join(','); };
+const all = (mods, ctxs = a.CONTEXTS) => ctxs.map(c => [4, 5, 6, 7].map(b => press(c, b, mods)).join('/')).join(' ');
+console.log(JSON.stringify({
+  parsedAll: a.CONTEXTS.map(c => `${c}:${defaults[c].length}:${rules[c].length}`).join(' '),
+  roundtrip: a.CONTEXTS.every(c => JSON.stringify(a.serializeRules(rules[c])) === JSON.stringify(defaults[c])),
+  desktopButtons: rules.desktop.filter(r => r.input.kind === 'button').map(r => `${r.input.button}:${r.mods}:${r.action}`).join(' '),
+  desktop: wheel('desktop'), shell: wheel('shell'), overview: wheel('overview'), appGrid: wheel('app-grid'),
+  noDuplicates: a.CONTEXTS.every(c => new Set(rules[c].map(r => `${r.input.button}/${r.mods}`)).size === rules[c].length),
+  offered: a.CONTEXTS.every(c => rules[c].every(r => a.actionAvailability(r.action, c) === 'ok' && a.actionsForContext(c).some(([id]) => id === r.action))),
+  pageOnlyInGrid: a.CONTEXTS.filter(c => rules[c].some(r => a.APP_GRID_ONLY_ACTIONS.includes(r.action))).join(' '),
+  noBareWheel: a.CONTEXTS.every(c => rules[c].filter(r => r.input.kind === 'wheel').every(r => a.unbindableReason(r.input.button, r.mods) === null)),
+  plain: all(''), ctrl: all('ctrl'), alt: all('alt'),
+  backForward: ['desktop', 'overview', 'app-grid'].map(c => [8, 9].map(b => press(c, b, '')).join('/')).join(' '),
+  rate: fire([['up', 1000], ['up', 1100], ['up', 1500], ['down', 1600]]),
+}));
+JS
+node "$tmp/js/defaults.mjs" "$xml" > "$tmp/defaults.json" || fail "node could not read the default rules"
+dd() { jq -r "$1" "$tmp/defaults.json"; }
+deq() { local got; got=$(dd "$1"); [ "$got" = "$2" ] && pass "$3" || fail "$3 (got: $got)"; }
+nul="none-found/none-found/none-found/none-found"
+deq .parsedAll "desktop:6:6 shell:4:4 overview:4:4 app-grid:4:4" "every default rule parses (none dropped), per context"
+deq .roundtrip true "default rules round-trip through parseRules and serializeRules unchanged (the editor's save format)"
+deq .desktopButtons "8::prev-workspace 9::next-workspace" "the desktop keeps Back and Forward"
+deq .desktop "up:alt:step-in down:alt:step-out left:alt:prev-workspace right:alt:next-workspace" "desktop wheel defaults"
+deq .shell "up:alt:step-in down:alt:step-out left:alt:prev-workspace right:alt:next-workspace" "shell wheel defaults"
+deq .overview "up:alt:step-in down:alt:step-out left:alt:prev-workspace right:alt:next-workspace" "overview wheel defaults"
+deq .appGrid "up:alt:step-in down:alt:step-out left:alt:app-grid-prev-page right:alt:app-grid-next-page" "app grid wheel defaults: left and right turn pages"
+deq .noDuplicates true "no duplicate (button, modifiers) in a default list"
+deq .offered true "every default action exists and is offered in its own list"
+deq .pageOnlyInGrid "app-grid" "page actions appear only in the app grid defaults"
+deq .noBareWheel true "default wheel rules carry a modifier, so Require a modifier is satisfied"
+deq .plain "$nul $nul $nul $nul" "plain scrolling matches no default rule in any context"
+deq .ctrl "$nul $nul $nul $nul" "Ctrl+wheel matches no default (exact modifier set)"
+deq .alt "step-in/step-out/prev-workspace/next-workspace step-in/step-out/prev-workspace/next-workspace step-in/step-out/prev-workspace/next-workspace step-in/step-out/app-grid-prev-page/app-grid-next-page" "Alt+wheel resolves per context; the app grid pages on left and right"
+deq .backForward "prev-workspace/next-workspace none-found/none-found none-found/none-found" "Back and Forward only on the desktop (other lists unchanged)"
+deq .rate "F,rate-limited,F,rate-limited" "the pause between wheel actions applies to the default wheel rules"
+
 
 # choices of the action ids (the rule keys are arrays, so ids are checked in parseRules)
 eq '.ids|length > 5' true "action ids exist"
