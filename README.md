@@ -23,6 +23,19 @@ On Wayland, log out and back in after the first install, then run `just enable`.
 
 By default, with no window under the pointer, Back goes to the previous workspace and Forward to the next one (it stops at the first and last workspace).
 
+**Default rules** (a fresh install has these, no setup):
+
+| Input | Desktop, top bar, overview | App grid |
+|---|---|---|
+| Back button (desktop only) | Previous workspace | |
+| Forward button (desktop only) | Next workspace | |
+| Alt + wheel up | Step in | Step in |
+| Alt + wheel down | Step out | Step out |
+| Alt + wheel left | Previous workspace | App grid: previous page |
+| Alt + wheel right | Next workspace | App grid: next page |
+
+Plain scrolling is never taken over, because every wheel rule needs Alt. All of this can be edited or deleted in the settings.
+
 Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app). Each group is a list of rules: a mouse button, an optional modifier (Ctrl, Shift, Alt, Super or a combination) and an action. The first matching rule wins, and a rule only matches when exactly its modifiers are held.
 
 **Add a rule:** choose "Add rule" at the end of a list, then click the mouse button you want to use. The button is detected, and any modifier keys you hold are pre-filled. Pick the modifier and the action, then choose Add. You can change the modifier or the action later in the list, or delete a rule with the trash button. The primary and secondary buttons cannot be used, the middle button only together with a modifier, and the same button and modifier cannot be bound twice in one list.
@@ -50,9 +63,13 @@ Other settings:
 - "Wrap around workspaces" (off by default): Back on the first workspace goes to the last, and Forward on the last goes to the first. Also applies to moving a window.
 - "Log button presses" (Advanced, off by default): for troubleshooting. Writes one line per mouse button press or wheel event to the journal, including presses that were ignored and why; read it with `journalctl --user -b -o cat | grep desktop-mouse-nav`.
 
+Changes in 0.6.0: the Alt + wheel default rules above (up and down step in and out, left and right switch workspaces or turn app grid pages). Written without a live GNOME session.
+
 Changes in 0.5.0: Wheel left and Wheel right as inputs (numbers 6 and 7 in the saved rules, which used to be plain button numbers that real mice do not send); the actions Step out and Step in; the actions Toggle quick settings and Toggle calendar. All of this was written without a live GNOME session. The window move actions are still hidden.
 
 Changes in 0.4.1: previous and next workspace switch workspaces again in the app grid (0.4.0 turned the grid's pages with them; the new page actions do that now, and rules you saved keep their action); the dropdown lists show the full action names; the two toggles switch between the overview and the app grid. The "move the focused window to another workspace" actions are disabled for now because they did not work (they are planned to return): a rule that already uses one stays in the list as "Unavailable in this version" and does nothing.
+
+Upgrading from 0.5.0: saved rules keep working. The new default rules apply to every list you never edited, so if you left a list untouched it now has the Alt + wheel rules (and an empty list you never touched is no longer empty); a list you edited, even to empty it, stays as it is. To remove the new rules, delete them in the settings.
 
 Upgrading from 0.4.1: nothing to do, saved rules keep working.
 
@@ -62,7 +79,7 @@ Upgrading from 0.2.0: the old per-button settings are gone, and the default rule
 
 ## Contributing
 
-Work happens on a branch (`feat/<topic>`, `fix/<topic>`) that goes by pull request into `testing`, and a pull request promotes `testing` to `main`. Maintainer notes are in `CLAUDE.md`. Run `just test` first; a weekly check (Mondays) tries the latest release against the next Fedora release and only warns. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.5.0`).
+Work happens on a branch (`feat/<topic>`, `fix/<topic>`) that goes by pull request into `testing`, and a pull request promotes `testing` to `main`. Maintainer notes are in `CLAUDE.md`. Run `just test` first; a weekly check (Mondays) tries the latest release against the next Fedora release and only warns. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.6.0`).
 
 ## License
 
