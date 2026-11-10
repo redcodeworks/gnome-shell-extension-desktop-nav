@@ -14,8 +14,10 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
 import {
-    CONTEXTS, anyRuleUsesButton, debugLine, findRule, modifiersFromState,
-    pageTarget, parseRules, pointerContext, resolveAction, rulesKey, workspaceTarget,
+    CONTEXTS, WHEEL_DOWN, WHEEL_UP, anyRuleUsesButton, debugLine, findRule,
+    modifiersFromState, newWheelState, pageTarget, parseRules, pointerContext,
+    resolveAction, rulesKey, scrollInput, wheelConfig, wheelNote, wheelReset, wheelStep,
+    workspaceTarget,
 } from './actions.js';
 
 // Modifier bits of event.get_state() that count. Everything else except `ignore` (Caps
@@ -37,12 +39,22 @@ const NOT_USED = Object.freeze({
     mods: null, context: null, found: null, result: 'ignored', reason: 'no-rule-uses-button',
 });
 
+// Clutter.ScrollDirection by name, for scrollInput (pure, so it cannot import Clutter).
+const SCROLL_NAMES = new Map([
+    [Clutter.ScrollDirection.UP, 'up'],
+    [Clutter.ScrollDirection.DOWN, 'down'],
+    [Clutter.ScrollDirection.LEFT, 'left'],
+    [Clutter.ScrollDirection.RIGHT, 'right'],
+    [Clutter.ScrollDirection.SMOOTH, 'smooth'],
+]);
+
 // ControlsState.APP_GRID is 2 (UNVERIFIED export, hence the fallback).
 const APP_GRID_STATE = OverviewControls.ControlsState?.APP_GRID ?? 2;
 
 export default class DesktopMouseNav extends Extension {
     enable() {
         this._pressedButton = null;
+        this._wheel = newWheelState();
         this._settings = this.getSettings();
         this._loadActions();
         this._settingsChangedId = this._settings.connect('changed', () => this._loadActions());
@@ -63,6 +75,7 @@ export default class DesktopMouseNav extends Extension {
         this._rules = null;
         this._debug = false;
         this._pressedButton = null;
+        this._wheel = null;
     }
 
     // Cache the parsed rules so a button press never reads GSettings.
@@ -72,10 +85,15 @@ export default class DesktopMouseNav extends Extension {
             this._rules[context] = parseRules(this._settings.get_value(rulesKey(context)).recursiveUnpack());
         this._wrap = this._settings.get_boolean('wrap-workspaces');
         this._debug = this._settings.get_boolean('debug-log');
+        this._wheelConfig = wheelConfig(this._settings.get_double('wheel-threshold'),
+            this._settings.get_double('wheel-min-interval'));
+        this._wheel = wheelReset(this._wheel ?? newWheelState());
     }
 
     _onCapturedEvent(event) {
         const type = event.type();
+        if (type === Clutter.EventType.SCROLL)
+            return this._onScroll(event);
         if (type !== Clutter.EventType.BUTTON_PRESS &&
             type !== Clutter.EventType.BUTTON_RELEASE)
             return Clutter.EVENT_PROPAGATE;
@@ -98,15 +116,53 @@ export default class DesktopMouseNav extends Extension {
         const info = anyRuleUsesButton(this._rules, button)
             ? this._handlePress(event, button)
             : NOT_USED;
-        // The only log call; nothing is logged (and nothing computed) unless the setting is on.
-        if (this._debug) {
-            console.log(this._pressLine(event, button, info));
-        }
+        this._logPress(event, button, info);
         if (info.result !== 'ran')
             return Clutter.EVENT_PROPAGATE;
 
         this._pressedButton = button;
         return Clutter.EVENT_STOP;
+    }
+
+    // Wheel events: reduced to up/down (horizontal scrolling is never touched), then the
+    // same rule lookup as a button press (the wheel is button 4 and 5), then the
+    // accumulator decides whether the action runs. A matching event is always swallowed
+    // (also while it only accumulates or is rate limited), so the Shell does not also act
+    // on it; everything else propagates.
+    _onScroll(event) {
+        const direction = SCROLL_NAMES.get(event.get_scroll_direction());
+        let dx = 0, dy = 0;
+        if (direction === 'smooth') {
+            try {
+                [dx, dy] = event.get_scroll_delta();
+            } catch (e) {
+                return Clutter.EVENT_PROPAGATE;
+            }
+            // The end of a touchpad or kinetic scroll: start counting again.
+            if (typeof event.get_scroll_finish_flags === 'function' &&
+                event.get_scroll_finish_flags() !== 0)
+                this._wheel = wheelReset(this._wheel);
+        }
+        const input = scrollInput(direction, dx, dy);
+        if (!input)
+            return Clutter.EVENT_PROPAGATE;
+
+        const button = input.dir === 'up' ? WHEEL_UP : WHEEL_DOWN;
+        input.time = event.get_time();
+        const info = anyRuleUsesButton(this._rules, button)
+            ? this._handlePress(event, button, input)
+            : NOT_USED;
+        this._logPress(event, button, info);
+        return info.result === 'ran' || info.result === 'held'
+            ? Clutter.EVENT_STOP
+            : Clutter.EVENT_PROPAGATE;
+    }
+
+    // The only log call; nothing is logged (and nothing computed) unless the setting is on.
+    _logPress(event, button, info) {
+        if (this._debug) {
+            console.log(this._pressLine(event, button, info));
+        }
     }
 
     // The debug line of a press (only called with debug-log on).
@@ -115,13 +171,16 @@ export default class DesktopMouseNav extends Extension {
         // Presses that returned before the modifier check still show their modifiers.
         const mods = info.mods ?? modifiersFromState(state, MODIFIER_MASKS, true);
         return debugLine(true, button, state, mods, info.context ?? this._contextOf(event),
-            info.found, info.result, info.reason);
+            info.found, info.result, info.reason, info.note ?? null);
     }
 
-    // Decides and runs; returns {mods, context, found, result, reason}, result 'ran',
-    // 'propagated', 'at-end' or 'ignored'. `context` stays null when it was not needed.
-    _handlePress(event, button) {
-        const info = {mods: null, context: null, found: null, result: 'ignored', reason: null};
+    // Decides and runs; returns {mods, context, found, result, reason, note}, result 'ran',
+    // 'propagated', 'at-end', 'ignored' or (wheel only) 'held'. `context` stays null when
+    // it was not needed. `input` is the scrollInput result for a wheel event, else null.
+    _handlePress(event, button, input = null) {
+        const info = {
+            mods: null, context: null, found: null, result: 'ignored', reason: null, note: null,
+        };
         if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible)) {
             info.reason = 'locked-or-modal';
             return info;
@@ -148,6 +207,17 @@ export default class DesktopMouseNav extends Extension {
             info.result = 'propagated';
             info.reason = 'no-matching-rule';
             return info;
+        }
+
+        if (input) {
+            const step = wheelStep(this._wheel, input, this._wheelConfig);
+            this._wheel = step.state;
+            info.note = wheelNote(input, step.state);
+            if (!step.fire) {
+                info.result = 'held';
+                info.reason = step.reason;
+                return info;
+            }
         }
 
         const todo = resolveAction(info.found.rule.action, context);

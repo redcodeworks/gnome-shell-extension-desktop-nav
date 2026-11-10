@@ -2,7 +2,7 @@
 //
 // Preferences window: one group per context with its list of rules (button, modifiers,
 // action). A plus row at the end of each list opens a dialog that detects the mouse
-// button by a real click. This file runs in its own process: only Adw/Gio/Gtk/GLib.
+// button by a real click, or the wheel by scrolling. This file runs in its own process: only Adw/Gio/Gtk/GLib.
 
 import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
@@ -12,9 +12,9 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {
-    ACTIONS, ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS,
-    WORKSPACE_SWITCHES, buttonName, findDuplicate, makeRule, modifiersFromState,
-    parseRules, rulesKey, serializeRules, unbindableReason,
+    ACTIONS, ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS, WHEEL_DOWN,
+    WHEEL_SETTINGS, WHEEL_UP, WORKSPACE_SWITCHES, buttonName, findDuplicate, isWheelButton,
+    makeRule, modifiersFromState, parseRules, rulesKey, serializeRules, unbindableReason,
 } from './actions.js';
 
 const CONTEXT_TEXT = {
@@ -55,6 +55,8 @@ function writeRules(settings, context, rules) {
     settings.set_value(rulesKey(context), new GLib.Variant('a(uss)', serializeRules(rules)));
 }
 
+const NO_MODIFIER_NOTE = 'No modifier: plain scrolling triggers this rule.';
+
 // The "Press a mouse button" dialog. `onAdd(button, mods, action)` is called on Add.
 // Adw.Dialog (libadwaita 1.5) presented from the window; a modal Adw.Window as fallback.
 function showRuleDialog(window, existingRules, onAdd) {
@@ -63,11 +65,11 @@ function showRuleDialog(window, existingRules, onAdd) {
         margin_top: 24, margin_bottom: 24, margin_start: 24, margin_end: 24,
     });
     const prompt = new Gtk.Label({
-        label: 'Click a mouse button here.',
+        label: 'Click a mouse button here, or turn the mouse wheel.',
         css_classes: ['title-3'], wrap: true, justify: Gtk.Justification.CENTER,
     });
     const hint = new Gtk.Label({
-        label: 'Hold modifier keys while you click to pre-fill the modifier.',
+        label: 'Hold modifier keys while you click or scroll to pre-fill the modifier.',
         css_classes: ['dim-label'], wrap: true, justify: Gtk.Justification.CENTER,
     });
     const status = new Gtk.Label({label: '', wrap: true, css_classes: ['error'], visible: false});
@@ -79,7 +81,13 @@ function showRuleDialog(window, existingRules, onAdd) {
     const buttonRow = new Adw.ActionRow({title: 'Button'});
     const modifierRow = new Adw.ComboRow({title: 'Modifier', model: stringList(MODIFIER_LABELS)});
     const actionRow = new Adw.ComboRow({title: 'Action', model: stringList(ACTION_LABELS)});
+    // Wheel rules need a modifier by default so normal scrolling is never taken over.
+    const requireRow = new Adw.SwitchRow({
+        title: 'Require a modifier', active: true, visible: false,
+        subtitle: 'Turn off to run the action on plain scrolling.',
+    });
     group.add(buttonRow);
+    group.add(requireRow);
     group.add(modifierRow);
     group.add(actionRow);
     box.append(group);
@@ -92,6 +100,22 @@ function showRuleDialog(window, existingRules, onAdd) {
     box.append(buttons);
 
     let detected = null;
+    const detect = (button, state) => {
+        detected = button;
+        const wheel = isWheelButton(button);
+        buttonRow.subtitle = wheel
+            ? 'Mouse wheel, as your system reports it (natural scrolling flips up and down)'
+            : buttonName(button) + (button > 9 || button === 2 ? '' : ` (button ${button})`);
+        buttonRow.title = wheel ? buttonName(button) : 'Button';
+        const held = MODIFIER_IDS.indexOf(modifiersFromState(state, GTK_MASKS, false));
+        // A wheel rule without held modifiers starts on Ctrl (the first row after None).
+        modifierRow.selected = Math.max(wheel && held <= 0 ? MODIFIER_IDS.indexOf('ctrl') : 0, held);
+        requireRow.visible = wheel;
+        prompt.label = 'Choose the modifier and the action.';
+        hint.visible = false;
+        group.visible = true;
+        validate();
+    };
     const showStatus = text => {
         status.label = text ?? '';
         status.visible = !!text;
@@ -100,8 +124,10 @@ function showRuleDialog(window, existingRules, onAdd) {
     const validate = () => {
         if (detected === null)
             return;
-        const mods = MODIFIER_IDS[modifierRow.selected] ?? '';
-        let problem = unbindableReason(detected, mods);
+        const wheel = isWheelButton(detected);
+        modifierRow.sensitive = !(wheel && !requireRow.active);
+        const mods = wheel && !requireRow.active ? '' : MODIFIER_IDS[modifierRow.selected] ?? '';
+        let problem = unbindableReason(detected, mods, wheel && !requireRow.active);
         if (!problem && findDuplicate(existingRules, detected, mods) >= 0)
             problem = 'Already bound in this list.';
         showStatus(problem);
@@ -120,25 +146,33 @@ function showRuleDialog(window, existingRules, onAdd) {
             showStatus(unbindableReason(button, ''));
             return;
         }
-        detected = button;
-        buttonRow.subtitle = buttonName(button) + (button > 9 || button === 2 ? '' : ` (button ${button})`);
-        modifierRow.selected = Math.max(0, MODIFIER_IDS.indexOf(modifiersFromState(state, GTK_MASKS, false)));
-        prompt.label = 'Choose the modifier and the action.';
-        hint.visible = false;
-        group.visible = true;
-        validate();
+        detect(button, state);
     });
     box.add_controller(gesture);
+
+    // The wheel: the first vertical scroll event picks Wheel up or down, as GNOME reports
+    // it (so it follows the natural scrolling setting). Horizontal scrolling is ignored.
+    const scroll = new Gtk.EventControllerScroll({flags: Gtk.EventControllerScrollFlags.VERTICAL});
+    scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+    scroll.connect('scroll', (_controller, _dx, dy) => {
+        if (detected !== null || dy === 0)
+            return false;
+        const state = scroll.get_current_event_state() & Gtk.accelerator_get_default_mod_mask();
+        detect(dy < 0 ? WHEEL_UP : WHEEL_DOWN, state);
+        return true;
+    });
+    box.add_controller(scroll);
     modifierRow.connect('notify::selected', validate);
+    requireRow.connect('notify::active', validate);
 
     let dialog = null;
     try {
-        dialog = new Adw.Dialog({title: 'Press a mouse button', child: box, content_width: 420});
+        dialog = new Adw.Dialog({title: 'Press a button or turn the wheel', child: box, content_width: 420});
         dialog.present(window);
     } catch (e) {
         // Fallback: a modal window on top of the preferences window.
         dialog = new Adw.Window({
-            title: 'Press a mouse button', modal: true, transient_for: window,
+            title: 'Press a button or turn the wheel', modal: true, transient_for: window,
             default_width: 420, content: box,
         });
         dialog.present();
@@ -148,8 +182,9 @@ function showRuleDialog(window, existingRules, onAdd) {
     add.connect('clicked', () => {
         if (detected === null)
             return;
-        const mods = MODIFIER_IDS[modifierRow.selected] ?? '';
-        if (unbindableReason(detected, mods) || findDuplicate(existingRules, detected, mods) >= 0)
+        const bare = isWheelButton(detected) && !requireRow.active;
+        const mods = bare ? '' : MODIFIER_IDS[modifierRow.selected] ?? '';
+        if (unbindableReason(detected, mods, bare) || findDuplicate(existingRules, detected, mods) >= 0)
             return;
         onAdd(detected, mods, ACTION_IDS[actionRow.selected] ?? 'none');
         dialog.close();
@@ -160,7 +195,7 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
         const page = new Adw.PreferencesPage({
-            title: 'Mouse buttons',
+            title: 'Mouse buttons and wheel',
             icon_name: 'input-mouse-symbolic',
         });
 
@@ -182,6 +217,20 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
             page.add(group);
         };
         addSwitches('Workspaces', WORKSPACE_SWITCHES);
+
+        const wheelGroup = new Adw.PreferencesGroup({
+            title: 'Mouse wheel',
+            description: 'How wheel rules count scrolling. Events are added up in one direction; an action runs when the sum reaches the amount, then wheel events are ignored for the pause.',
+        });
+        for (const [key, title, subtitle, min, max, step, digits] of WHEEL_SETTINGS) {
+            const row = new Adw.SpinRow({
+                title, subtitle, digits,
+                adjustment: new Gtk.Adjustment({lower: min, upper: max, step_increment: step}),
+            });
+            settings.bind(key, row, 'value', Gio.SettingsBindFlags.DEFAULT);
+            wheelGroup.add(row);
+        }
+        page.add(wheelGroup);
         addSwitches('Advanced', ADVANCED_SWITCHES);
 
         // Keep the settings object alive as long as the window (gjs.guide pattern).
@@ -231,7 +280,8 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
                             return false;
                         const next = {...current[index], [field]: value};
                         if (field === 'mods') {
-                            const problem = unbindableReason(next.input.button, next.mods);
+                            // A wheel rule set to no modifier is the user's explicit choice.
+                            const problem = unbindableReason(next.input.button, next.mods, true);
                             if (problem) {
                                 toast(problem);
                                 return false;
@@ -279,8 +329,13 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
     // One rule: button name as the title; modifier and action dropdowns and a delete
     // button as suffixes. `edit.change(field, value)` returns false to refuse the change.
     _buildRuleRow(rule, edit) {
+        const wheel = isWheelButton(rule.input.button);
         const row = new Adw.ActionRow({title: buttonName(rule.input.button)});
         let mods = rule.mods;
+        const showNote = () => {
+            row.subtitle = wheel && mods === '' ? NO_MODIFIER_NOTE : '';
+        };
+        showNote();
 
         const modifierDrop = new Gtk.DropDown({
             model: stringList(MODIFIER_LABELS), valign: Gtk.Align.CENTER,
@@ -297,6 +352,7 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
             const wanted = MODIFIER_IDS[modifierDrop.selected] ?? '';
             if (edit.change('mods', wanted)) {
                 mods = wanted;
+                showNote();
             } else {
                 reverting = true;
                 modifierDrop.selected = Math.max(0, MODIFIER_IDS.indexOf(mods));
