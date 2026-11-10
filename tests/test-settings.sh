@@ -88,6 +88,9 @@ const out = {
     return [a.wheelStep(st, ev('down', 0.6, 'smooth', 1010), W).fire, st.acc].join(','); })(),
   resetKeepsLimit: (() => { let st = a.wheelStep(a.newWheelState(), ev('down', 1, 'discrete', 1000), W).state; st = a.wheelReset(st);
     return a.wheelStep(st, ev('down', 1, 'discrete', 1100), W).reason; })(),
+  emulated: [[2, 2], [0, 2], [3, 2], [2, 0], [undefined, 2], [2, undefined], ['x', 2], [2, 4]].map(([f, m]) => a.isEmulatedScroll(f, m)),
+  meta: [a.scrollMeta('smooth', 1, 2), a.scrollMeta('up', undefined, undefined), a.scrollMeta(undefined, 0, 0x2a)],
+  metaNote: a.wheelNote({kind: 'discrete', amount: 1, meta: a.scrollMeta('down', 1, 0)}, {acc: 0}),
   wlog: [a.debugLine(true, 4, 0x4, 'ctrl', 'desktop', {context: 'desktop', index: 1, rule: R(4, 'ctrl', 'next-workspace')}, 'held', 'accumulating', a.wheelNote({kind: 'smooth', amount: 0.5}, {acc: 0.5})),
     a.debugLine(true, 5, 0, '', 'desktop', null, 'ignored', 'no-rule-uses-button'), a.inputLabel(8)],
   unbind: [[1, ''], [3, ''], [1, 'ctrl'], [3, 'shift'], [2, ''], [2, 'ctrl'], [8, ''], [9, 'alt+super'], [12, ''], [0, ''], [8, 'bogus'], [2.5, ''], ['8', '']].map(([b, m]) => a.unbindableReason(b, m)),
@@ -226,6 +229,10 @@ eq .reasons "accumulating,fired,rate-limited,fired" "reasons: accumulating, fire
 eq .clockBack "FF" "an event time that went backwards is not rate limited"
 eq .reset "false,0" "wheelReset clears the partial sum"
 eq .resetKeepsLimit rate-limited "wheelReset keeps the rate limit"
+eq '.emulated|map(tostring)|join(" ")' "true false true false false false false false" "emulated scroll events are told apart by the flag bit; a missing flag API or bad flags filter nothing"
+eq '.meta|join("|")' "dir=smooth source=1 flags=0x2|dir=up source=? flags=?|dir=? source=0 flags=0x2a" "calibration fields: direction, source, flags"
+eq .metaNote "scroll=discrete amount=1.00 acc=0.00 dir=down source=1 flags=0x0" "wheel debug note carries the calibration fields"
+grep -q "POINTER_EMULATED" "$ext/extension.js" && grep -q "get_scroll_source" "$ext/extension.js" && pass "extension.js skips emulated scroll events and logs the scroll source" || fail "emulated filter or source logging missing"
 eq '.wlog[0]' "desktop-mouse-nav: button=wheel-up state=0x4 mods=ctrl context=desktop match=yes rule=desktop[1] action=next-workspace result=held reason=accumulating scroll=smooth amount=0.50 acc=0.50" "wheel debug line"
 eq '.wlog[1]' "desktop-mouse-nav: button=wheel-down state=0x0 mods=none context=desktop match=no rule=none action=none result=ignored reason=no-rule-uses-button" "wheel debug line without a rule"
 eq '.wlog[2]' 8 "other inputs keep their number in the log"
