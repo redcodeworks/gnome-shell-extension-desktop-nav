@@ -1,0 +1,152 @@
+name: fedora-next
+
+# Early warning, never a gate: does the extension still work against the NEXT Fedora
+# release (the one after the release nox runs)? The plan job picks the image; the next-test
+# job runs the same suite as ci.yml's test job inside it, plus the Shell API probe.
+# NOT a required check and nothing depends on it. It uploads nothing and publishes nothing.
+#  - push to testing and pull_request into testing: a failure becomes a warning
+#    annotation and a job summary section; the run stays green.
+#  - schedule (weekly) and workflow_dispatch: the same failure fails the job, so the weekly
+#    run goes red and shows up in the scheduled-run check.
+# When no newer image exists the run ends green with a notice.
+# Weekly slot: Thursday 07:00 UTC, a day after gnome-version-watch (Wednesday 06:23 UTC).
+on:
+  push:
+    branches: [testing]
+  pull_request:
+    branches: [testing]
+  schedule:
+    - cron: '0 7 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fedora-next-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXT: desktop-mouse-nav@redcodeworks.github.io
+  # The Fedora release nox runs. Bump it when nox moves to the next release.
+  FEDORA_BASELINE: '45'
+
+jobs:
+  plan:
+    runs-on: ubuntu-26.04
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      image: ${{ steps.plan.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install tools
+        run: |
+          for i in 1 2 3; do
+            command -v skopeo >/dev/null && command -v jq >/dev/null && exit 0
+            sudo apt-get update && sudo apt-get install -y skopeo jq && exit 0
+            sleep 10
+          done
+          echo "::warning::could not install skopeo; the plan will report nothing to test"
+      - name: Pick the image
+        id: plan
+        run: scripts/fedora-next-plan.sh
+
+  next-test:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-26.04
+    container: ${{ needs.plan.outputs.image }}
+    steps:
+      - name: Install tools
+        id: install
+        continue-on-error: true
+        run: |
+          for i in 1 2 3; do
+            dnf install -y --setopt=install_weak_deps=False --setopt=retries=5 git nodejs gnome-shell just unzip zip jq glib2-devel python3-pyyaml cpio xz tar rpm && exit 0
+            [ "$i" -lt 3 ] && sleep 10
+          done
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Let git read the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+      - name: Record the image and Shell versions
+        run: |
+          {
+            echo "### Fedora image under test"
+            echo
+            echo "Image: \`${{ needs.plan.outputs.image }}\`"
+            . /etc/os-release && echo "OS: $PRETTY_NAME"
+            echo "gnome-shell: $(rpm -q --qf '%{VERSION}-%{RELEASE}' gnome-shell 2>/dev/null || echo not installed)"
+            echo "gjs: $(rpm -q --qf '%{VERSION}-%{RELEASE}' gjs 2>/dev/null || echo not installed)"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Lint, install test, script tests
+        id: suite
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        run: just test
+      - name: Compile the schema, if there is one
+        id: schema
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        run: |
+          if ls "$EXT"/schemas/*.gschema.xml >/dev/null 2>&1; then
+            glib-compile-schemas --strict --dry-run "$EXT/schemas"
+            echo "schema compiles"
+          else
+            echo "no schema, skipping"
+          fi
+      - name: Pack
+        id: pack
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        run: just pack
+      - name: Pre-flight on the packed zip
+        id: preflight
+        if: steps.pack.outcome == 'success'
+        continue-on-error: true
+        run: scripts/ego-preflight.sh "dist/$EXT.shell-extension.zip" --repo-url "https://github.com/$GITHUB_REPOSITORY" --license-dir .
+      - name: API probe
+        id: probe
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        run: scripts/api-probe.sh
+      - name: Verdict
+        if: always()
+        env:
+          IMAGE: ${{ needs.plan.outputs.image }}
+          EVENT: ${{ github.event_name }}
+          INSTALL: ${{ steps.install.outcome }}
+          SUITE: ${{ steps.suite.outcome }}
+          SCHEMA: ${{ steps.schema.outcome }}
+          PACK: ${{ steps.pack.outcome }}
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          PROBE: ${{ steps.probe.outcome }}
+        run: |
+          failed=
+          [ "$INSTALL" = failure ] && failed="$failed install-tools"
+          [ "$SUITE" = failure ] && failed="$failed just-test"
+          [ "$SCHEMA" = failure ] && failed="$failed schema"
+          [ "$PACK" = failure ] && failed="$failed pack"
+          [ "$PREFLIGHT" = failure ] && failed="$failed pre-flight"
+          [ "$PROBE" = failure ] && failed="$failed api-probe"
+          failed=${failed# }
+          if [ -z "$failed" ]; then
+            echo "fedora-next: everything passed on $IMAGE"
+            echo "### Result: passed on \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          msg="extension may break on $IMAGE: failed steps: $failed"
+          {
+            echo "### Result: $msg"
+            echo
+            echo "See the step logs above. This workflow is an early warning, not a gate."
+          } >> "$GITHUB_STEP_SUMMARY"
+          case $EVENT in
+            schedule|workflow_dispatch)
+              echo "::error::$msg"
+              exit 1 ;;
+            *)
+              echo "::warning::$msg"
+              exit 0 ;;
+          esac

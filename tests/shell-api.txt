@@ -1,0 +1,27 @@
+# GNOME Shell and GJS symbols the extension depends on (read by scripts/api-probe.sh).
+# file in the Shell source <TAB> symbol or extended regex <TAB> "<extension file>: <code token>" (tests/test-api-probe.sh keeps this in step with the code)
+js/ui/main.js	^export let modalCount	extension.js: Main.modalCount
+js/ui/main.js	^export let sessionMode	extension.js: Main.sessionMode.isLocked
+js/ui/sessionMode.js	isLocked	extension.js: Main.sessionMode.isLocked
+js/ui/main.js	^export let overview\b	extension.js: Main.overview.visible
+js/ui/overview.js	get visible\(\)	extension.js: Main.overview.visible
+js/ui/overview.js	^    toggle\(	extension.js: Main.overview.toggle
+js/ui/overview.js	^    hide\(	extension.js: Main.overview.hide
+js/ui/overview.js	^    showApps\(	extension.js: Main.overview.showApps
+js/ui/overview.js	get controls\(\)	extension.js: Main.overview.controls
+js/ui/overview.js	this\._overview = new OverviewActor	extension.js: Main.overview._overview
+js/ui/overview.js	get dash\(\)	extension.js: Main.overview.dash
+js/ui/dash.js	this\.showAppsButton =	extension.js: Main.overview.dash?.showAppsButton
+js/ui/main.js	^export let layoutManager\b	extension.js: Main.layoutManager._backgroundGroup
+js/ui/layout.js	this\._backgroundGroup =	extension.js: Main.layoutManager._backgroundGroup
+js/ui/overviewControls.js	this\._stateAdjustment =	extension.js: ?._stateAdjustment
+js/ui/overviewControls.js	^export const ControlsState	extension.js: OverviewControls.ControlsState
+js/ui/overviewControls.js	get appDisplay\(\)	extension.js: ?.appDisplay
+js/ui/appDisplay.js	^    goToPage\(	extension.js: appDisplay.goToPage
+js/ui/appDisplay.js	this\._grid =	extension.js: appDisplay?._grid
+js/ui/iconGrid.js	get currentPage\(\)	extension.js: grid.currentPage
+js/ui/iconGrid.js	get nPages\(\)	extension.js: grid.nPages
+js/extensions/extension.js	^export class Extension\b	extension.js: import {Extension}
+js/extensions/sharedInternals.js	^    getSettings\(	extension.js: this.getSettings()
+js/extensions/prefs.js	^export class ExtensionPreferences\b	prefs.js: import {ExtensionPreferences}
+js/extensions/sharedInternals.js	^    getSettings\(	prefs.js: this.getSettings()

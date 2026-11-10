@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Desktop Mouse Nav: the mouse Back/Forward buttons run a configurable action
-// (preferences window): on the empty desktop (also while the overview or the app grid
-// is open, when enabled) and on other Shell surfaces such as the top bar. GNOME never
-// passes presses over application windows to extensions. Defaults: workspace
-// switching on the desktop, nothing on Shell surfaces.
+// Desktop Mouse Nav: mouse button rules (button, modifiers, action) per context, edited
+// in the preferences window: the empty desktop, other Shell surfaces such as the top
+// bar, the overview and the app grid. GNOME never passes presses over application
+// windows to extensions. Default: Back/Forward switch workspaces on the empty desktop.
 
 import Clutter from 'gi://Clutter';
 import Meta from 'gi://Meta';
@@ -15,13 +14,28 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
 import {
-    BUTTONS, CONTEXTS, debugLine, overviewAllowed, pageTarget, pickAction, pointerContext,
-    resolveAction, settingsKey, treatAsDesktop, workspaceTarget,
+    CONTEXTS, anyRuleUsesButton, debugLine, findRule, modifiersFromState,
+    pageTarget, parseRules, pointerContext, resolveAction, rulesKey, workspaceTarget,
 } from './actions.js';
 
-// Button numbers as reported by event.get_button() (X11-style numbering:
-// 4-7 are scroll, so the side buttons are 8 and 9). UNVERIFIED on Shell 51.
-const BUTTON_NAMES = new Map([[8, 'back'], [9, 'forward']]);
+// Modifier bits of event.get_state() that count. Everything else except `ignore` (Caps
+// Lock, Num Lock, the button bits) means "not exactly the rule". Super counts as either
+// SUPER_MASK (1<<26) or MOD4_MASK (1<<6): which one Shell 51 reports is UNVERIFIED.
+const MODIFIER_MASKS = {
+    shift: Clutter.ModifierType.SHIFT_MASK,
+    ctrl: Clutter.ModifierType.CONTROL_MASK,
+    alt: Clutter.ModifierType.MOD1_MASK,
+    super: Clutter.ModifierType.SUPER_MASK | Clutter.ModifierType.MOD4_MASK,
+    ignore: Clutter.ModifierType.LOCK_MASK | Clutter.ModifierType.MOD2_MASK |
+        Clutter.ModifierType.BUTTON1_MASK | Clutter.ModifierType.BUTTON2_MASK |
+        Clutter.ModifierType.BUTTON3_MASK | Clutter.ModifierType.BUTTON4_MASK |
+        Clutter.ModifierType.BUTTON5_MASK,
+};
+
+// Result for a press of a button no rule uses (shared, so nothing is allocated per press).
+const NOT_USED = Object.freeze({
+    mods: null, context: null, found: null, result: 'ignored', reason: 'no-rule-uses-button',
+});
 
 // ControlsState.APP_GRID is 2 (UNVERIFIED export, hence the fallback).
 const APP_GRID_STATE = OverviewControls.ControlsState?.APP_GRID ?? 2;
@@ -46,25 +60,16 @@ export default class DesktopMouseNav extends Extension {
             this._settingsChangedId = 0;
         }
         this._settings = null;
-        this._actions = null;
-        this._flags = null;
+        this._rules = null;
         this._debug = false;
         this._pressedButton = null;
     }
 
-    // Cache the configured actions so a button press never reads GSettings.
+    // Cache the parsed rules so a button press never reads GSettings.
     _loadActions() {
-        this._actions = {};
-        for (const context of CONTEXTS) {
-            for (const button of BUTTONS) {
-                const key = settingsKey(context, button);
-                this._actions[key] = this._settings.get_string(key);
-            }
-        }
-        this._flags = {
-            inOverview: this._settings.get_boolean('work-in-overview'),
-            inAppGrid: this._settings.get_boolean('work-in-app-grid'),
-        };
+        this._rules = {};
+        for (const context of CONTEXTS)
+            this._rules[context] = parseRules(this._settings.get_value(rulesKey(context)).recursiveUnpack());
         this._wrap = this._settings.get_boolean('wrap-workspaces');
         this._debug = this._settings.get_boolean('debug-log');
     }
@@ -75,9 +80,9 @@ export default class DesktopMouseNav extends Extension {
             type !== Clutter.EventType.BUTTON_RELEASE)
             return Clutter.EVENT_PROPAGATE;
 
+        // Primary and secondary buttons are never touched.
         const button = event.get_button();
-        const name = BUTTON_NAMES.get(button);
-        if (!name)
+        if (button === 1 || button === 3)
             return Clutter.EVENT_PROPAGATE;
 
         if (type === Clutter.EventType.BUTTON_RELEASE) {
@@ -89,13 +94,13 @@ export default class DesktopMouseNav extends Extension {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        const info = this._handlePress(event, name);
-        // The only log call; nothing is logged unless the setting is on.
+        // No rule at all uses this button: nothing to decide.
+        const info = anyRuleUsesButton(this._rules, button)
+            ? this._handlePress(event, button)
+            : NOT_USED;
+        // The only log call; nothing is logged (and nothing computed) unless the setting is on.
         if (this._debug) {
-            const line = debugLine(this._debug, name, info.context ?? this._contextOf(event),
-                info.action, info.result);
-            if (line)
-                console.debug(line);
+            console.log(this._pressLine(event, button, info));
         }
         if (info.result !== 'ran')
             return Clutter.EVENT_PROPAGATE;
@@ -104,41 +109,55 @@ export default class DesktopMouseNav extends Extension {
         return Clutter.EVENT_STOP;
     }
 
-    // Decides and runs; returns {context, action, result}, result 'ran', 'propagated'
-    // or 'at-end'. `context` stays null when it was not needed (and logging is off).
-    _handlePress(event, name) {
-        const info = {context: null, action: 'none', result: 'propagated'};
-        const read = key => this._actions[key];
-        const desktopSet = read(settingsKey('desktop', name)) !== 'none';
-        const shellSet = read(settingsKey('shell', name)) !== 'none';
-        // Cheapest checks first: nothing configured for this button, nothing to do.
-        if (!desktopSet && !shellSet)
-            return info;
+    // The debug line of a press (only called with debug-log on).
+    _pressLine(event, button, info) {
+        const state = event.get_state();
+        // Presses that returned before the modifier check still show their modifiers.
+        const mods = info.mods ?? modifiersFromState(state, MODIFIER_MASKS, true);
+        return debugLine(true, button, state, mods, info.context ?? this._contextOf(event),
+            info.found, info.result, info.reason);
+    }
 
-        if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible))
+    // Decides and runs; returns {mods, context, found, result, reason}, result 'ran',
+    // 'propagated', 'at-end' or 'ignored'. `context` stays null when it was not needed.
+    _handlePress(event, button) {
+        const info = {mods: null, context: null, found: null, result: 'ignored', reason: null};
+        if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible)) {
+            info.reason = 'locked-or-modal';
             return info;
+        }
+
+        info.mods = modifiersFromState(event.get_state(), MODIFIER_MASKS, true);
+        if (info.mods === null) {
+            info.reason = 'other-modifier-bits';
+            return info;
+        }
 
         const overviewVisible = Main.overview.visible;
         const appGridShowing = overviewVisible && this._appGridShowing();
-        if (!overviewAllowed({overviewVisible, appGridShowing}, this._flags))
-            return info;
 
+        // The actor lookup only when a desktop rule uses this button.
+        const desktopUsed = this._rules.desktop.some(rule => rule.input.button === button);
         const context = pointerContext({
             overviewVisible, appGridShowing,
-            onEmptyDesktop: !overviewVisible && desktopSet && this._pointerOnEmptyDesktop(event),
+            onEmptyDesktop: !overviewVisible && desktopUsed && this._pointerOnEmptyDesktop(event),
         });
         info.context = context;
-        info.action = pickAction(read, treatAsDesktop(context), name);
-        if (info.action === 'none')
+        info.found = findRule(this._rules, context, button, info.mods);
+        if (!info.found) {
+            info.result = 'propagated';
+            info.reason = 'no-matching-rule';
             return info;
+        }
 
-        const todo = resolveAction(info.action, context);
+        const todo = resolveAction(info.found.rule.action, context);
         try {
             info.result = todo.type === 'page'
                 ? this._pageAppGrid(todo.step)
                 : this._runAction(todo.id);
         } catch (e) {
             info.result = 'propagated';
+            info.reason = 'action-threw';
         }
         return info;
     }

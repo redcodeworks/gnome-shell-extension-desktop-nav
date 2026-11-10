@@ -16,104 +16,196 @@ fi
 mkdir "$tmp/js"; cp "$ext/actions.js" "$tmp/js/actions.mjs"
 cat > "$tmp/js/dump.mjs" <<'JS'
 import * as a from './actions.mjs';
-const table = {
-  'desktop-back': 'prev-workspace', 'desktop-forward': 'next-workspace',
-  'shell-back': 'none', 'shell-forward': 'none',
+const SUPER = 1 << 26, MOD4 = 64;
+const M = {shift: 1, ctrl: 4, alt: 8, super: SUPER | MOD4, ignore: 2 | 16 | 256 | 512 | 1024 | 2048 | 4096};
+const HYPER = 1 << 27, META = 1 << 28, MOD3 = 32, MOD5 = 128;
+const S = {shift: 1, ctrl: 4, alt: 8, super: SUPER, ignore: 2 | 16 | 256};
+const R = (b, m, act) => a.makeRule(b, m, act);
+const rulesBy = {
+  desktop: [R(8, '', 'prev-workspace'), R(9, '', 'next-workspace'), R(8, 'ctrl', 'toggle-overview')],
+  shell: [R(8, '', 'toggle-app-grid'), R(9, 'shift', 'next-workspace')],
+  overview: [R(8, '', 'toggle-app-grid')],
+  'app-grid': [R(8, '', 'prev-workspace'), R(9, '', 'next-workspace')],
 };
+const found = (ctx, b, m) => { const f = a.findRule(rulesBy, ctx, b, m); return f ? `${f.context}:${f.index}:${f.rule.action}` : null; };
 const out = {
-  schema: a.SCHEMA_ID, ids: a.ACTION_IDS,
-  keys: a.CONTEXTS.flatMap(c => a.BUTTONS.map(b => a.settingsKey(c, b))),
-  // button x context x (desktop set to, anywhere set to) -> picked action
-  defaults: Object.fromEntries(a.BUTTONS.flatMap(b => [true, false].map(d =>
-    [`${b}/${d ? 'desktop' : 'elsewhere'}`, a.pickAction(k => table[k], d, b)]))),
-  anywhereOnly: a.pickAction(k => ({'desktop-back': 'none', 'shell-back': 'toggle-overview'})[k], true, 'back'),
-  desktopWins: a.pickAction(k => ({'desktop-forward': 'next-workspace', 'shell-forward': 'toggle-overview'})[k], true, 'forward'),
-  shellOnly: a.pickAction(k => ({'desktop-back': 'prev-workspace', 'shell-back': 'toggle-overview'})[k], false, 'back'),
-  contexts: a.CONTEXTS,
+  schema: a.SCHEMA_ID, ids: a.ACTION_IDS, contexts: a.CONTEXTS,
+  keys: a.CONTEXTS.map(a.rulesKey),
+  boolKeys: a.BOOLEAN_KEYS,
+  norm: ['', 'Shift+ctrl', 'super+alt+ctrl+shift', 'ctrl+ctrl', ' Ctrl + Shift ', 'hyper', 'ctrl+meta', 5, null].map(x => a.normalizeModifiers(x)),
+  combos: a.MODIFIER_COMBOS.length, combo0: a.MODIFIER_COMBOS[0], comboUnique: new Set(a.MODIFIER_COMBOS.map(c => c[0])).size,
+  comboAllNormal: a.MODIFIER_COMBOS.every(([m]) => a.normalizeModifiers(m) === m),
+  fromState: [0, 1, 4, 8, 1 << 26, 1 | 4, 1 | 2, 4 | 16, 4 | 256, 4 | 1024, MOD4, SUPER | MOD4, 4 | MOD4, 4 | SUPER, 4 | SUPER | MOD4 | 2 | 16, 1 | 2 | 8 | MOD4].map(s => a.modifiersFromState(s, M, true)),
+  fromStateOther: [HYPER, META, MOD3, MOD5, 4 | HYPER, 4 | META, MOD4 | HYPER].map(s => a.modifiersFromState(s, M, true)),
+  fromStateLoose: [0, 4 | HYPER, 1 | 4 | 8 | (1 << 26)].map(s => a.modifiersFromState(s, a.GTK_MASKS, false)),
+  names: [2, 8, 9, 10, 12].map(a.buttonName),
+  unbind: [[1, ''], [3, ''], [1, 'ctrl'], [3, 'shift'], [2, ''], [2, 'ctrl'], [8, ''], [9, 'alt+super'], [12, ''], [0, ''], [8, 'bogus'], [2.5, ''], ['8', '']].map(([b, m]) => a.unbindableReason(b, m)),
+  parsed: a.parseRules([[8, '', 'prev-workspace'], [9, 'shift+ctrl', 'next-workspace'], [1, '', 'none'], [3, '', 'none'], [2, '', 'none'], [2, 'alt', 'none'], [8, '', 'rm-rf'], [8, 'hyper', 'none'], [8, ''], 'x', [12, 'super', 'toggle-overview']]).map(r => [r.input.button, r.mods, r.action]),
+  parseJunk: [a.parseRules(null), a.parseRules('x'), a.parseRules({})].map(r => r.length),
+  serialized: a.serializeRules(a.parseRules([[9, 'Shift+ctrl', 'next-workspace']])),
+  roundtrip: JSON.stringify(a.serializeRules(a.parseRules([[8, '', 'prev-workspace'], [9, 'ctrl+shift', 'none']]))),
+  inputKind: a.makeRule(8, '', 'none').input.kind,
+  dup: [[8, '', -1], [8, '', 0], [9, '', -1], [8, 'ctrl', -1], [8, 'Ctrl', -1], [8, 'shift', -1], [10, '', -1]].map(([b, m, e]) => a.findDuplicate(rulesBy.desktop, b, m, e)),
+  match: [[8, ''], [8, 'ctrl'], [9, ''], [9, 'ctrl'], [8, null], [10, ''], [8, 'ctrl+shift']].map(([b, m]) => a.matchRule(rulesBy.desktop, b, m)),
+  superMatch: [[SUPER], [MOD4], [SUPER | MOD4], [SUPER | 2], [MOD4 | 16], [4 | MOD4], [4 | SUPER | MOD4], [4], [0], [SUPER | 4], [MOD4 | 1]].map(([st]) =>
+    a.matchRule([R(8, 'super', 'none'), R(9, 'ctrl+super', 'none')], 8, a.modifiersFromState(st, M, true))),
+  superCtrlMatch: [[4 | SUPER], [4 | MOD4], [4 | SUPER | MOD4], [SUPER], [4]].map(([st]) =>
+    a.matchRule([R(8, 'super', 'none'), R(9, 'ctrl+super', 'none')], 9, a.modifiersFromState(st, M, true))),
+  noSuperRule: [[0], [2], [SUPER], [MOD4], [SUPER | MOD4], [4]].map(([st]) =>
+    a.matchRule([R(8, '', 'none')], 8, a.modifiersFromState(st, M, true))),
+  emptyContexts: ['overview', 'app-grid', 'desktop', 'shell'].map(c => a.findRule({desktop: [], shell: [], overview: [], 'app-grid': []}, c, 8, '')),
+  hex: [0x40, 1 << 26, 0, 4 | 2048, 'x', null, -1].map(a.hexState),
+  firstWins: a.matchRule([R(8, '', 'none'), R(8, '', 'toggle-overview')], 8, ''),
+  uses: [8, 9, 10, 2, 1].map(b => a.anyRuleUsesButton(rulesBy, b)),
+  usesEmpty: a.anyRuleUsesButton({desktop: [], shell: []}, 8),
+  order: ['desktop', 'shell', 'overview', 'app-grid'].map(a.contextOrder),
+  find: {
+    desktopBack: found('desktop', 8, ''),
+    desktopCtrlBack: found('desktop', 8, 'ctrl'),
+    desktopFallsBackToShell: found('desktop', 9, 'shift'),
+    desktopNoMatch: found('desktop', 9, 'ctrl'),
+    shellOnly: found('shell', 8, ''),
+    shellNoDesktop: found('shell', 8, 'ctrl'),
+    overviewOnly: found('overview', 8, ''),
+    overviewNoShell: found('overview', 9, 'shift'),
+    appGridOnly: found('app-grid', 9, ''),
+    unknownMods: found('desktop', 8, null),
+  },
   ctx: [[false,false,true],[false,false,false],[true,false,false],[true,true,false]].map(([o,g,d]) =>
     a.pointerContext({overviewVisible: o, appGridShowing: g, onEmptyDesktop: d})),
-  asDesktop: ['desktop','overview','app-grid','shell'].map(c => a.treatAsDesktop(c)),
-  overviewFallback: a.pickAction(k => ({'desktop-back': 'none', 'shell-back': 'next-workspace'})[k], a.treatAsDesktop('overview'), 'back'),
   resolve: [['prev-workspace','app-grid'],['next-workspace','app-grid'],['toggle-overview','app-grid'],
     ['prev-workspace','overview'],['next-workspace','desktop']].map(([x,c]) => a.resolveAction(x, c)),
   pages: [[0,5,-1],[0,5,1],[2,5,-1],[2,5,1],[4,5,1],[4,5,-1],[0,1,1],[0,1,-1],[0,0,1],[0,0,-1],[-1,0,1],[7,5,1],[null,5,1]]
     .map(([c,n,s]) => a.pageTarget(c, n, s)),
   ws: [[0,4,-1,0],[0,4,-1,1],[3,4,1,0],[3,4,1,1],[1,4,-1,0],[1,4,1,1],[0,1,1,1],[0,1,-1,1],[0,1,1,0],[0,0,1,1],[5,4,1,1]]
     .map(([i,n,s,w]) => a.workspaceTarget(i, n, s, !!w)),
-  log: [a.debugLine(false,'back','desktop','none','ran'), a.debugLine(true,'back','app-grid','prev-workspace','at-end')],
-  boolKeys: a.BOOLEAN_KEYS,
-  unknown: a.pickAction(() => 'rm-rf', true, 'back'),
-  gate: Object.fromEntries([[1,1],[1,0],[0,1],[0,0]].flatMap(([o,g]) =>
-    [[true,true],[true,false],[false,false]].map(([v,grid]) =>
-      [`flags${o}${g}/visible${+v}grid${+grid}`, a.overviewAllowed({overviewVisible: v, appGridShowing: grid}, {inOverview: !!o, inAppGrid: !!g})]))),
-  switches: a.OVERVIEW_SWITCHES.map(r => r[0]),
+  log: [a.debugLine(false,8,0,'','desktop',null,'ran'),
+    a.debugLine(true,8,0x44,'ctrl','app-grid',{context:'app-grid',index:1,rule:R(8,'ctrl','prev-workspace')},'at-end'),
+    a.debugLine(true,9,0,'','shell',null,'propagated','no-matching-rule'), a.debugLine(true,9,1<<27,null,'shell',null,'ignored','other-modifier-bits'),
+    a.debugLine(true,10,0x40,'super','desktop',null,'ignored','no-rule-uses-button'),
+    a.debugLine(true,8,SUPER,'super','desktop',{context:'desktop',index:0,rule:R(8,'super','next-workspace')},'ran')],
 };
 console.log(JSON.stringify(out));
 JS
 node "$tmp/js/dump.mjs" > "$tmp/dump.json" || { fail "node could not run actions.js"; finish; exit 1; }
 d() { jq -r "$1" "$tmp/dump.json"; }
+eq() { # JQ-EXPR WANT NAME
+    local got; got=$(d "$1"); [ "$got" = "$2" ] && pass "$3" || { fail "$3 (got: $got)"; }
+}
 
 [ "$(d .schema)" = "$(jq -r '.["settings-schema"]' "$ext/metadata.json")" ] && pass "metadata settings-schema equals SCHEMA_ID" || fail "settings-schema differs from actions.js"
 grep -q "<schema id=\"$(d .schema)\"" "$xml" && pass "schema XML declares that id" || fail "schema id missing in the XML"
 
-# keys: each key and its default, parsed from the XML
-awk -F'"' '/<key name=/ {k=$2} /<default>/ {gsub(/.*<default>\x27?|\x27?<\/default>.*/, ""); print k, $0}' "$xml" | sort > "$tmp/defaults"
-want=$'debug-log false\ndesktop-back prev-workspace\ndesktop-forward next-workspace\nshell-back none\nshell-forward none\nwork-in-app-grid false\nwork-in-overview false\nwrap-workspaces false'
-[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema defaults: desktop back/forward switch workspaces, shell is none, debug-log and wrap-workspaces off" || { fail "schema defaults"; cat "$tmp/defaults" >&2; }
-[ "$(d '(.keys + .boolKeys)|sort|join(" ")')" = "$(cut -d' ' -f1 "$tmp/defaults" | tr '\n' ' ' | sed 's/ $//')" ] && pass "schema keys equal actions.js keys" || fail "schema keys differ from actions.js"
-
-# choices of every key equal the action ids
-ids=$(d '.ids|sort|join(" ")')
-bad=0
-for k in $(d '.keys[]'); do
-    c=$(awk -v k="$k" '$0 ~ "<key name=\"" k "\"" {on=1} on && /<choice / {match($0, /value=.[^\x27"]*/); print substr($0, RSTART+7, RLENGTH-7)} on && /<\/key>/ {on=0}' "$xml" | sort | tr '\n' ' ' | sed 's/ $//')
-    [ "$c" = "$ids" ] || { bad=1; echo "key $k choices: $c" >&2; }
+# keys: each key, its type and its default, parsed from the XML
+awk -F'"' '/<key name=/ {k=$2; t=$4} /<default>/ {gsub(/.*<default>|<\/default>.*/, ""); print k "|" t "|" $0}' "$xml" | sort > "$tmp/defaults"
+want=$'debug-log|b|false\nrules-app-grid|a(uss)|[]\nrules-desktop|a(uss)|[(8, \x27\x27, \x27prev-workspace\x27), (9, \x27\x27, \x27next-workspace\x27)]\nrules-overview|a(uss)|[]\nrules-shell|a(uss)|[]\nwrap-workspaces|b|false'
+[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema keys and defaults: four a(uss) rule keys (desktop 8 prev, 9 next; others empty), wrap and debug off, no overview or app grid switches" || { fail "schema keys and defaults"; cat "$tmp/defaults" >&2; }
+for old in desktop-back desktop-forward shell-back shell-forward; do
+    grep -q "\"$old\"" "$xml" && fail "old key $old still in the schema" || pass "old key $old is gone"
 done
-[ "$bad" = 0 ] && pass "every key's choices equal the action ids" || fail "schema choices differ from actions.js"
+[ "$(d '(.keys + .boolKeys)|sort|join(" ")')" = "$(cut -d'|' -f1 "$tmp/defaults" | tr '\n' ' ' | sed 's/ $//')" ] && pass "schema keys equal actions.js keys" || fail "schema keys differ from actions.js"
 
-# mapping
-[ "$(d '.defaults["back/desktop"]')" = prev-workspace ] && [ "$(d '.defaults["forward/desktop"]')" = next-workspace ] && pass "defaults on the desktop: back=prev, forward=next" || fail "desktop defaults"
-[ "$(d '.defaults["back/elsewhere"]')" = none ] && [ "$(d '.defaults["forward/elsewhere"]')" = none ] && pass "defaults elsewhere: none (buttons stay with applications)" || fail "anywhere defaults"
-[ "$(d .anywhereOnly)" = toggle-overview ] && pass "desktop 'none' falls back to the anywhere action" || fail "fallback"
-[ "$(d .desktopWins)" = next-workspace ] && pass "desktop action wins on the desktop" || fail "desktop precedence"
-[ "$(d .unknown)" = none ] && pass "unknown ids count as none" || fail "unknown id"
+# the compiled defaults read back through gsettings against a temp schema dir
+if command -v glib-compile-schemas >/dev/null && command -v gsettings >/dev/null; then
+    mkdir "$tmp/schemadir"; cp "$xml" "$tmp/schemadir/"; glib-compile-schemas --strict "$tmp/schemadir"
+    gs() { GSETTINGS_BACKEND=memory gsettings --schemadir "$tmp/schemadir" "$@"; }
+    sid=$(d .schema)
+    [ "$(gs get "$sid" rules-desktop | sed 's/uint32 //')" = "[(8, '', 'prev-workspace'), (9, '', 'next-workspace')]" ] && pass "gsettings reads the desktop defaults back" || fail "gsettings desktop default: $(gs get "$sid" rules-desktop)"
+    for k in rules-shell rules-overview rules-app-grid; do
+        [ "$(gs get "$sid" $k)" = "@a(uss) []" ] && pass "gsettings reads $k as empty" || fail "gsettings $k: $(gs get "$sid" $k)"
+    done
+else
+    echo "skip gsettings read-back (glib-compile-schemas or gsettings not installed)"
+fi
 
-# every string default is a valid index into the action list (prefs.js maps it to a row)
-for k in $(d '.keys[]'); do
-    v=$(grep "^$k " "$tmp/defaults" | cut -d' ' -f2)
-    [ "$(jq -r --arg v "$v" '.ids|index($v)' "$tmp/dump.json")" != null ] && pass "default of $k ($v) is in the action list" || fail "default of $k ($v) not in the action list"
+# choices of the action ids (the rule keys are arrays, so ids are checked in parseRules)
+eq '.ids|length > 5' true "action ids exist"
+eq '.contexts|join(" ")' "desktop shell overview app-grid" "contexts are desktop, shell, overview, app-grid"
+eq '.keys|join(" ")' "rules-desktop rules-shell rules-overview rules-app-grid" "one rules key per context"
+eq '.boolKeys|join(" ")' "wrap-workspaces debug-log" "only the wrap and debug switches remain"
+for gone in work-in-overview work-in-app-grid CONTEXT_SWITCHES overviewAllowed _flags; do
+    grep -rq "$gone" "$ext"/*.js "$xml" && fail "$gone is still in the sources" || pass "$gone is gone"
 done
+eq '.emptyContexts|map(tostring)|join(" ")' "null null null null" "a context with no rules does nothing"
 
-[ "$(d '.contexts|join(" ")')" = "desktop shell" ] && pass "contexts are desktop and shell" || fail "contexts"
-[ "$(d .shellOnly)" = toggle-overview ] && pass "shell surface: only the shell action" || fail "shell-only"
-[ "$(d '.ctx|join(" ")')" = "desktop shell overview app-grid" ] && pass "pointer context: desktop, shell, overview, app-grid" || fail "pointer context"
-[ "$(d '.asDesktop|map(tostring)|join(" ")')" = "true true true false" ] && pass "overview and app grid count as the desktop" || fail "treatAsDesktop"
-[ "$(d .overviewFallback)" = next-workspace ] && pass "overview: desktop none falls back to the shell action" || fail "overview fallback"
-[ "$(d '.resolve|map(if .type == "page" then "page\(.step)" else .id end)|join(" ")')" = "page-1 page1 toggle-overview prev-workspace next-workspace" ] && pass "app grid: prev/next workspace page the grid, others as bound" || fail "resolveAction"
-[ "$(d '.pages|map(tostring)|join(" ")')" = "null 1 1 3 null 3 null null null null null null null" ] && pass "page target: start, middle, end, one page, zero pages, bad input, no wrap" || { fail "pageTarget"; d '.pages|tostring' >&2; }
-[ "$(d '.ws|map(tostring)|join(" ")')" = "null 3 null 0 0 2 null null null null null" ] && pass "workspace target: first, middle, last, one workspace, wrap on and off" || { fail "workspaceTarget"; d '.ws|tostring' >&2; }
-[ "$(d '.log[0]')" = null ] && [ "$(d '.log[1]')" = "desktop-mouse-nav: button=back context=app-grid action=prev-workspace result=at-end" ] && pass "debug line is null when off, one line when on" || fail "debugLine"
-# the only console.debug is behind the flag
-[ "$(grep -c 'console\.' "$ext/extension.js")" = 1 ] && grep -B3 'console\.debug' "$ext/extension.js" | grep -q 'if (line)' && grep -B6 'console\.debug' "$ext/extension.js" | grep -q 'if (this._debug)' && pass "extension.js logs once, behind this._debug and debugLine" || fail "logging is not gated by the flag"
+# modifiers
+eq '.norm|map(tostring)|join("|")' "|ctrl+shift|alt+ctrl+shift+super|ctrl|ctrl+shift|null|null|null|null" "modifier strings normalize to sorted parts (unknown parts and non-strings are null)"
+eq '.combos' 16 "16 modifier combinations"
+eq '.comboUnique' 16 "all combinations differ"
+eq '.combo0|join("/")' "/None" "None comes first"
+eq '.comboAllNormal' true "every combination is a normalized string"
+eq '.fromState|map(tostring)|join("|")' "|shift|ctrl|alt|super|ctrl+shift|shift|ctrl|ctrl|ctrl|super|super|ctrl+super|ctrl+super|ctrl+super|alt+shift+super" "state to modifiers: lock, num lock and button bits are ignored; Super is SUPER_MASK or MOD4_MASK or both"
+eq '.superMatch|map(tostring)|join(" ")' "0 0 0 0 0 -1 -1 -1 -1 -1 -1" "a Super rule matches with SUPER_MASK only, MOD4_MASK only or both (lock bits ignored), not without or with extra modifiers"
+eq '.superCtrlMatch|map(tostring)|join(" ")' "1 1 1 -1 -1" "Ctrl+Super matches with either Super bit, not Ctrl or Super alone"
+eq '.noSuperRule|map(tostring)|join(" ")' "0 0 -1 -1 -1 -1" "a rule without Super does not match when Super is held (either bit); lock bits ignored"
+eq '.hex|join("|")' "0x40|0x4000000|0x0|0x804|unknown|unknown|0xffffffff" "raw state as hex"
+eq '.fromStateOther|map(tostring)|join("|")' "null|null|null|null|null|null|null" "Hyper, Meta and other modifier bits mean not exactly any rule"
+eq '.fromStateLoose|map(tostring)|join("|")' "|ctrl|alt+ctrl+shift+super" "non-strict (preferences) reading looks at the four bits only"
+eq '.names|join("|")' "Middle|Back|Forward|Button 10|Button 12" "button names"
+
+# buttons
+eq '.unbind|map(tostring)|join("|")' "The primary and secondary buttons cannot be used.|The primary and secondary buttons cannot be used.|The primary and secondary buttons cannot be used.|The primary and secondary buttons cannot be used.|The middle button needs at least one modifier.|null|null|null|null|Not a valid mouse button.|Unknown modifier.|Not a valid mouse button.|Not a valid mouse button." "buttons 1 and 3 are refused, middle needs a modifier, others are fine"
+
+# rules: parse, serialize, duplicates, matching
+eq '.parsed|map(join(","))|join(" ")' "8,,prev-workspace 9,ctrl+shift,next-workspace 2,alt,none 12,super,toggle-overview" "parseRules drops invalid tuples (buttons 1 and 3, bare middle, unknown id, bad modifier, bad shape)"
+eq '.parseJunk|join(" ")' "0 0 0" "parseRules survives non-arrays"
+eq '.serialized|tostring' '[[9,"ctrl+shift","next-workspace"]]' "serializeRules writes (button, normalized modifiers, action)"
+eq .roundtrip '[[8,"","prev-workspace"],[9,"ctrl+shift","none"]]' "parse and serialize round-trip"
+eq .inputKind button "a rule's input is a typed button input (open for other kinds)"
+eq '.dup|map(tostring)|join(" ")' "0 -1 1 2 2 -1 -1" "duplicates: same button and modifiers (normalized), the edited rule itself is skipped"
+eq '.match|map(tostring)|join(" ")' "0 2 1 -1 -1 -1 -1" "exact (button, modifiers) match; extra modifiers or unknown bits do not match"
+eq .firstWins 0 "the first matching rule wins when duplicates exist"
+eq '.uses|map(tostring)|join(" ")' "true true false false false" "anyRuleUsesButton"
+eq .usesEmpty false "no rules, no button used"
+
+# context resolution and fallback order
+eq '.order|map(join(">"))|join(" ")' "desktop>shell shell overview app-grid" "resolution order: desktop then shell; the others only themselves"
+eq '.find.desktopBack' "desktop:0:prev-workspace" "desktop: first rule wins"
+eq '.find.desktopCtrlBack' "desktop:2:toggle-overview" "desktop: exact modifiers pick the ctrl rule"
+eq '.find.desktopFallsBackToShell' "shell:1:next-workspace" "desktop: no desktop rule, the shell rule runs"
+eq '.find.desktopNoMatch' null "desktop: nothing matches, the press propagates"
+eq '.find.shellOnly' "shell:0:toggle-app-grid" "shell surfaces: only the shell rules"
+eq '.find.shellNoDesktop' null "shell surfaces never use desktop rules"
+eq '.find.overviewOnly' "overview:0:toggle-app-grid" "overview: its own rules, not the desktop or shell ones"
+eq '.find.overviewNoShell' null "overview does not fall back to shell rules"
+eq '.find.appGridOnly' "app-grid:1:next-workspace" "app grid: its own rules"
+eq '.find.unknownMods' null "unknown modifier bits never match"
+eq '.ctx|join(" ")' "desktop shell overview app-grid" "pointer context: desktop, shell, overview, app-grid"
+eq '.resolve|map(if .type == "page" then "page\(.step)" else .id end)|join(" ")' "page-1 page1 toggle-overview prev-workspace next-workspace" "app grid: prev/next workspace page the grid, others as bound"
+eq '.pages|map(tostring)|join(" ")' "null 1 1 3 null 3 null null null null null null null" "page target: start, middle, end, one page, zero pages, bad input, no wrap"
+eq '.ws|map(tostring)|join(" ")' "null 3 null 0 0 2 null null null null null" "workspace target: first, middle, last, one workspace, wrap on and off"
+eq '.log[0]' null "debug line is null when off"
+eq '.log[1]' "desktop-mouse-nav: button=8 state=0x44 mods=ctrl context=app-grid match=yes rule=app-grid[1] action=prev-workspace result=at-end" "debug line: button, raw state in hex, modifiers, context, match, rule, action, result"
+eq '.log[2]' "desktop-mouse-nav: button=9 state=0x0 mods=none context=shell match=no rule=none action=none result=propagated reason=no-matching-rule" "debug line without a rule"
+eq '.log[3]' "desktop-mouse-nav: button=9 state=0x8000000 mods=other context=shell match=no rule=none action=none result=ignored reason=other-modifier-bits" "debug line with unknown modifier bits"
+eq '.log[4]' "desktop-mouse-nav: button=10 state=0x40 mods=super context=desktop match=no rule=none action=none result=ignored reason=no-rule-uses-button" "debug line for a press no rule uses"
+eq '.log[5]' "desktop-mouse-nav: button=8 state=0x4000000 mods=super context=desktop match=yes rule=desktop[0] action=next-workspace result=ran" "debug line for a Super press that ran"
+
+# the only console call is console.log (console.debug is dropped by GJS by default), directly under if (this._debug)
+[ "$(grep -c 'console\.' "$ext/extension.js")" = 1 ] && grep -q 'console\.log(' "$ext/extension.js" && grep -B1 'console\.log' "$ext/extension.js" | grep -q 'if (this\._debug) {' && pass "extension.js logs once with console.log, directly behind if (this._debug)" || fail "logging is not a single console.log behind the flag"
+grep -rq 'console\.debug' "$ext"/*.js && fail "console.debug is dropped by GJS by default, use console.log behind the flag" || pass "no console.debug"
 grep -q "get_boolean('debug-log')" "$ext/extension.js" && grep -q "get_boolean('wrap-workspaces')" "$ext/extension.js" && pass "extension.js caches debug-log and wrap-workspaces" || fail "flags not cached"
+grep -q "parseRules" "$ext/extension.js" && grep -q "rulesKey" "$ext/extension.js" && pass "extension.js caches parsed rules per context" || fail "rules not cached"
 grep -q "settings.get_\|_settings.get_" <(sed -n '/^    _onCapturedEvent(event)/,$p' "$ext/extension.js") && fail "a press reads GSettings" || pass "no GSettings read in the press path"
-grep -qE "anywhere" "$ext/extension.js" "$ext/prefs.js" "$ext/actions.js" "$xml" && fail "anywhere still in the sources" || pass "no 'anywhere' left in the sources"
-
-# overview gate
-g() { d ".gate[\"$1\"]"; }
-[ "$(g flags00/visible1grid1)" = false ] && [ "$(g flags10/visible1grid1)" = false ] && [ "$(g flags01/visible1grid1)" = true ] && pass "app grid showing: only with work-in-app-grid" || fail "gate: app grid"
-[ "$(g flags00/visible1grid0)" = false ] && [ "$(g flags01/visible1grid0)" = false ] && [ "$(g flags10/visible1grid0)" = true ] && pass "overview showing: only with work-in-overview" || fail "gate: overview"
-[ "$(g flags00/visible0grid0)" = true ] && [ "$(g flags11/visible0grid0)" = true ] && pass "neither showing: always allowed" || fail "gate: neither"
-grep -q "overviewAllowed" "$ext/extension.js" && pass "extension.js gates on overviewAllowed" || fail "extension.js does not gate"
+grep -qE "anywhere|desktop-back|shell-forward" "$ext/extension.js" "$ext/prefs.js" "$ext/actions.js" "$xml" && fail "old key or context names still in the sources" || pass "no old key or context names left in the sources"
+grep -q "button === 1 || button === 3" "$ext/extension.js" && pass "extension.js never touches buttons 1 and 3" || fail "buttons 1 and 3 not excluded in extension.js"
+grep -q "SUPER_MASK" "$ext/extension.js" && grep -q "MOD4_MASK" "$ext/extension.js" && grep -q "MOD1_MASK" "$ext/extension.js" && pass "extension.js reads Shift, Ctrl, Alt (MOD1) and Super (SUPER_MASK or MOD4_MASK) from the event state" || fail "modifier masks missing"
+grep -qiE "wheel|scroll" "$ext/extension.js" "$ext/prefs.js" "$ext/actions.js" && fail "wheel code present (a later brief)" || pass "no wheel code"
 
 # prefs.js must not use binding mappings (their GJS callbacks crashed the prefs process)
 grep -nE "bind_with_mapping|\.bind\([^)]*,[^)]*,[^)]*,[^)]*," "$ext/prefs.js" >/dev/null && fail "prefs.js uses a binding mapping" || pass "prefs.js uses no binding mapping"
-grep -qE "^import .* from 'gi://(Clutter|Meta|St|Shell)'" "$ext/prefs.js" && fail "prefs.js imports a Shell-only library" || pass "prefs.js imports only Adw/Gio/Gtk"
+# prefs.js runs in its own process: only Adw, Gio, Gtk and GLib from gi://, never Shell libraries
+bad=$(grep -oE "from 'gi://[A-Za-z]+'" "$ext/prefs.js" | grep -vE "gi://(Adw|Gio|Gtk|GLib|GObject)'" || true)
+[ -z "$bad" ] && pass "prefs.js imports only Adw/Gio/Gtk/GLib/GObject from gi://" || fail "prefs.js imports $bad"
+grep -qE "gi://(Clutter|Meta|St|Shell)|resource:///org/gnome/shell/" "$ext/prefs.js" && fail "prefs.js imports a Shell-only module" || pass "prefs.js imports no Shell module"
+grep -q "recursiveUnpack" "$ext/prefs.js" && grep -q "set_value" "$ext/prefs.js" && grep -q "'a(uss)'" "$ext/prefs.js" && pass "prefs.js reads with recursiveUnpack and writes set_value with a(uss)" || fail "prefs.js does not read/write a(uss) as designed"
+grep -q "get_current_button" "$ext/prefs.js" && grep -q "get_current_event_state" "$ext/prefs.js" && grep -q "PropagationPhase.CAPTURE" "$ext/prefs.js" && pass "prefs.js detects the button in a capture-phase click gesture" || fail "detection gesture missing"
+grep -q "Adw.ButtonRow" "$ext/prefs.js" && grep -q "list-add-symbolic" "$ext/prefs.js" && grep -q "user-trash-symbolic" "$ext/prefs.js" && pass "prefs.js has the add row and the delete button" || fail "add row or delete button missing"
 
 # extension.js handles every action id; prefs.js takes the ids only from actions.js
 for id in $(d '.ids[]|select(. != "none")'); do
     grep -q "'$id'" "$ext/extension.js" && pass "extension.js handles $id" || fail "extension.js does not handle $id"
-    grep -q "$id" "$ext/prefs.js" && fail "prefs.js hard-codes $id (use actions.js)" || pass "prefs.js does not duplicate $id"
+    grep -q "'$id'" "$ext/prefs.js" && fail "prefs.js hard-codes $id (use actions.js)" || pass "prefs.js does not duplicate $id"
 done
 grep -q "from './actions.js'" "$ext/extension.js" && grep -q "from './actions.js'" "$ext/prefs.js" && pass "both import ./actions.js" || fail "missing actions.js import"
 # every quoted action-like id handled in extension.js's switch must be a known id
