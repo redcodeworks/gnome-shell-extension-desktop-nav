@@ -99,6 +99,10 @@ function writeRules(settings, context, rules) {
     settings.set_value(rulesKey(context), new GLib.Variant('a(uss)', serializeRules(rules)));
 }
 
+// Fixed widths (pixels) of the two dropdowns in a rule row.
+const MODIFIER_DROP_WIDTH = 190;
+const ACTION_DROP_WIDTH = 240;
+
 const NO_MODIFIER_NOTE = 'No modifier: plain scrolling triggers this rule.';
 
 // The "Press a mouse button" dialog. `onAdd(button, mods, action)` is called on Add.
@@ -382,8 +386,10 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
         return group;
     }
 
-    // One rule: button name as the title; modifier and action dropdowns and a delete
-    // button as suffixes. `edit.change(field, value)` returns false to refuse the change.
+    // One rule, left to right: the modifier dropdown (prefix), the button name (title), the
+    // action dropdown and the delete button (suffixes). Both dropdowns have a fixed width so
+    // rows do not jump or truncate when a selection changes (the widths are a guess sized to
+    // the longest label, UNVERIFIED in a live session). `edit.change(field, value)` returns false to refuse the change.
     _buildRuleRow(rule, context, edit) {
         const choices = actionChoices(context);
         const availability = actionAvailability(rule.action, context);
@@ -399,10 +405,12 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
 
         const modifierDrop = new Gtk.DropDown({
             model: stringList(MODIFIER_LABELS), valign: Gtk.Align.CENTER,
+            width_request: MODIFIER_DROP_WIDTH,
             selected: Math.max(0, MODIFIER_IDS.indexOf(mods)),
         });
         const actionDrop = new Gtk.DropDown({
             model: stringList(choices.labels), valign: Gtk.Align.CENTER,
+            width_request: ACTION_DROP_WIDTH,
             selected: Math.max(0, choices.ids.indexOf(rule.action)),
         });
         showFullLabels(modifierDrop);
@@ -433,7 +441,7 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
         });
         remove.connect('clicked', () => edit.remove());
 
-        row.add_suffix(modifierDrop);
+        row.add_prefix(modifierDrop);
         // A disabled action is kept as saved (the dropdown would silently change it).
         if (availability === 'ok')
             row.add_suffix(actionDrop);
