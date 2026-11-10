@@ -423,6 +423,7 @@ bad=$(grep -oE "from 'gi://[A-Za-z]+'" "$ext/prefs.js" | grep -vE "gi://(Adw|Gio
 grep -qE "gi://(Clutter|Meta|St|Shell)|resource:///org/gnome/shell/" "$ext/prefs.js" && fail "prefs.js imports a Shell-only module" || pass "prefs.js imports no Shell module"
 grep -q "recursiveUnpack" "$ext/prefs.js" && grep -q "set_value" "$ext/prefs.js" && grep -q "'a(uss)'" "$ext/prefs.js" && pass "prefs.js reads with recursiveUnpack and writes set_value with a(uss)" || fail "prefs.js does not read/write a(uss) as designed"
 grep -q "get_current_button" "$ext/prefs.js" && grep -q "get_current_event_state" "$ext/prefs.js" && grep -q "PropagationPhase.CAPTURE" "$ext/prefs.js" && pass "prefs.js detects the button in a capture-phase click gesture" || fail "detection gesture missing"
+grep -q "add_prefix(modifierDrop)" "$ext/prefs.js" && ! grep -q "add_suffix(modifierDrop)" "$ext/prefs.js" && grep -q "width_request: MODIFIER_DROP_WIDTH" "$ext/prefs.js" && grep -q "width_request: ACTION_DROP_WIDTH" "$ext/prefs.js" && pass "rule rows: fixed-width modifier dropdown left of the button name, action dropdown right" || fail "rule row layout (modifier prefix, fixed widths) missing"
 grep -q "Adw.ButtonRow" "$ext/prefs.js" && grep -q "list-add-symbolic" "$ext/prefs.js" && grep -q "user-trash-symbolic" "$ext/prefs.js" && pass "prefs.js has the add row and the delete button" || fail "add row or delete button missing"
 
 # extension.js handles every action id; prefs.js takes the ids only from actions.js

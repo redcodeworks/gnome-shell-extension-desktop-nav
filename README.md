@@ -63,6 +63,8 @@ Other settings:
 - "Wrap around workspaces" (off by default): Back on the first workspace goes to the last, and Forward on the last goes to the first. Also applies to moving a window.
 - "Log button presses" (Advanced, off by default): for troubleshooting. Writes one line per mouse button press or wheel event to the journal, including presses that were ignored and why; read it with `journalctl --user -b -o cat | grep desktop-mouse-nav`.
 
+Changes in 0.6.1: in the rule lists the modifier dropdown now sits to the left of the button name, and both dropdowns have a fixed width so rows no longer jump when you change a selection. Written without a live GNOME session.
+
 Changes in 0.6.0: the Alt + wheel default rules above (up and down step in and out, left and right switch workspaces or turn app grid pages). Written without a live GNOME session.
 
 Changes in 0.5.0: Wheel left and Wheel right as inputs (numbers 6 and 7 in the saved rules, which used to be plain button numbers that real mice do not send); the actions Step out and Step in; the actions Toggle quick settings and Toggle calendar. All of this was written without a live GNOME session. The window move actions are still hidden.
