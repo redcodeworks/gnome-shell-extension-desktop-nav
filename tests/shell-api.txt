@@ -5,7 +5,6 @@ js/ui/main.js	^export let sessionMode	extension.js: Main.sessionMode.isLocked
 js/ui/sessionMode.js	isLocked	extension.js: Main.sessionMode.isLocked
 js/ui/main.js	^export let overview\b	extension.js: Main.overview.visible
 js/ui/overview.js	get visible\(\)	extension.js: Main.overview.visible
-js/ui/overview.js	^    toggle\(	extension.js: Main.overview.toggle
 js/ui/overview.js	^    hide\(	extension.js: Main.overview.hide
 js/ui/overview.js	^    showApps\(	extension.js: Main.overview.showApps
 js/ui/overview.js	get controls\(\)	extension.js: Main.overview.controls
@@ -25,3 +24,4 @@ js/extensions/extension.js	^export class Extension\b	extension.js: import {Exten
 js/extensions/sharedInternals.js	^    getSettings\(	extension.js: this.getSettings()
 js/extensions/prefs.js	^export class ExtensionPreferences\b	prefs.js: import {ExtensionPreferences}
 js/extensions/sharedInternals.js	^    getSettings\(	prefs.js: this.getSettings()
+js/ui/overview.js	^    show\(	extension.js: Main.overview.show

@@ -12,8 +12,8 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {
-    ACTIONS, ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS, WHEEL_DOWN,
-    WHEEL_SETTINGS, WHEEL_UP, WORKSPACE_SWITCHES, buttonName, findDuplicate, isWheelButton,
+    ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS, WHEEL_DOWN,
+    WHEEL_SETTINGS, WHEEL_UP, WORKSPACE_SWITCHES, actionAvailability, actionsForContext, buttonName, findDuplicate, isWheelButton,
     makeRule, modifiersFromState, parseRules, rulesKey, serializeRules, unbindableReason,
 } from './actions.js';
 
@@ -32,17 +32,61 @@ const CONTEXT_TEXT = {
     },
     'app-grid': {
         title: 'App grid',
-        description: 'Used while the app grid is showing. With no rules here, nothing happens in the app grid. Previous and next workspace turn the pages of the grid instead.',
+        description: 'Used while the app grid is showing. With no rules here, nothing happens in the app grid. Use the app grid page actions to turn its pages.',
     },
 };
 
-const ACTION_IDS = ACTIONS.map(([id]) => id);
-const ACTION_LABELS = ACTIONS.map(([, label]) => label);
+// The action ids and labels the editor offers in a context.
+function actionChoices(context) {
+    const actions = actionsForContext(context);
+    return {ids: actions.map(([id]) => id), labels: actions.map(([, label]) => label)};
+}
+
+const UNAVAILABLE_NOTE = 'Unavailable in this version';
+const NOT_HERE_NOTE = 'Not available in this list';
 const MODIFIER_IDS = MODIFIER_COMBOS.map(([mods]) => mods);
 const MODIFIER_LABELS = MODIFIER_COMBOS.map(([, label]) => label);
 
 function stringList(labels) {
     return Gtk.StringList.new(labels);
+}
+
+// Popup list items that show the whole text (libadwaita's default items are cut off at 20
+// characters) with a check mark on the selected one. `widget` is the Adw.ComboRow or
+// Gtk.DropDown; any failure leaves the default items in place.
+function showFullLabels(widget) {
+    try {
+        const factory = new Gtk.SignalListItemFactory();
+        const handlers = new Map();
+        factory.connect('setup', (_factory, listItem) => {
+            const box = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 12});
+            const label = new Gtk.Label({xalign: 0, hexpand: true});
+            const check = new Gtk.Image({icon_name: 'object-select-symbolic', opacity: 0});
+            box.append(label);
+            box.append(check);
+            listItem.set_child(box);
+        });
+        factory.connect('bind', (_factory, listItem) => {
+            const box = listItem.get_child();
+            const label = box.get_first_child();
+            const check = box.get_last_child();
+            label.label = listItem.get_item()?.string ?? '';
+            const update = () => {
+                check.opacity = widget.selected_item === listItem.get_item() ? 1 : 0;
+            };
+            update();
+            handlers.set(listItem, widget.connect('notify::selected-item', update));
+        });
+        factory.connect('unbind', (_factory, listItem) => {
+            const id = handlers.get(listItem);
+            if (id !== undefined)
+                widget.disconnect(id);
+            handlers.delete(listItem);
+        });
+        widget.list_factory = factory;
+    } catch (e) {
+        // keep the default items
+    }
 }
 
 // Reads one context's rules from the settings.
@@ -59,7 +103,8 @@ const NO_MODIFIER_NOTE = 'No modifier: plain scrolling triggers this rule.';
 
 // The "Press a mouse button" dialog. `onAdd(button, mods, action)` is called on Add.
 // Adw.Dialog (libadwaita 1.5) presented from the window; a modal Adw.Window as fallback.
-function showRuleDialog(window, existingRules, onAdd) {
+function showRuleDialog(window, context, existingRules, onAdd) {
+    const choices = actionChoices(context);
     const box = new Gtk.Box({
         orientation: Gtk.Orientation.VERTICAL, spacing: 12,
         margin_top: 24, margin_bottom: 24, margin_start: 24, margin_end: 24,
@@ -80,7 +125,9 @@ function showRuleDialog(window, existingRules, onAdd) {
     const group = new Adw.PreferencesGroup({visible: false});
     const buttonRow = new Adw.ActionRow({title: 'Button'});
     const modifierRow = new Adw.ComboRow({title: 'Modifier', model: stringList(MODIFIER_LABELS)});
-    const actionRow = new Adw.ComboRow({title: 'Action', model: stringList(ACTION_LABELS)});
+    const actionRow = new Adw.ComboRow({title: 'Action', model: stringList(choices.labels)});
+    showFullLabels(modifierRow);
+    showFullLabels(actionRow);
     // Wheel rules need a modifier by default so normal scrolling is never taken over.
     const requireRow = new Adw.SwitchRow({
         title: 'Require a modifier', active: true, visible: false,
@@ -186,7 +233,7 @@ function showRuleDialog(window, existingRules, onAdd) {
         const mods = bare ? '' : MODIFIER_IDS[modifierRow.selected] ?? '';
         if (unbindableReason(detected, mods, bare) || findDuplicate(existingRules, detected, mods) >= 0)
             return;
-        onAdd(detected, mods, ACTION_IDS[actionRow.selected] ?? 'none');
+        onAdd(detected, mods, choices.ids[actionRow.selected] ?? 'none');
         dialog.close();
     });
 }
@@ -273,7 +320,7 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
                 group.add(empty);
             }
             rules.forEach((rule, index) => {
-                const row = this._buildRuleRow(rule, {
+                const row = this._buildRuleRow(rule, context, {
                     change: (field, value) => {
                         const current = readRules(settings, context);
                         if (!current[index])
@@ -309,7 +356,7 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
         };
 
         addRow.connect('activated', () => {
-            showRuleDialog(window, readRules(settings, context), (button, mods, action) => {
+            showRuleDialog(window, context, readRules(settings, context), (button, mods, action) => {
                 const current = readRules(settings, context);
                 current.push(makeRule(button, mods, action));
                 save(current);
@@ -328,12 +375,16 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
 
     // One rule: button name as the title; modifier and action dropdowns and a delete
     // button as suffixes. `edit.change(field, value)` returns false to refuse the change.
-    _buildRuleRow(rule, edit) {
+    _buildRuleRow(rule, context, edit) {
+        const choices = actionChoices(context);
+        const availability = actionAvailability(rule.action, context);
         const wheel = isWheelButton(rule.input.button);
         const row = new Adw.ActionRow({title: buttonName(rule.input.button)});
         let mods = rule.mods;
         const showNote = () => {
-            row.subtitle = wheel && mods === '' ? NO_MODIFIER_NOTE : '';
+            row.subtitle = availability === 'unavailable' ? UNAVAILABLE_NOTE
+                : availability === 'not-here' ? NOT_HERE_NOTE
+                : wheel && mods === '' ? NO_MODIFIER_NOTE : '';
         };
         showNote();
 
@@ -342,9 +393,11 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
             selected: Math.max(0, MODIFIER_IDS.indexOf(mods)),
         });
         const actionDrop = new Gtk.DropDown({
-            model: stringList(ACTION_LABELS), valign: Gtk.Align.CENTER,
-            selected: Math.max(0, ACTION_IDS.indexOf(rule.action)),
+            model: stringList(choices.labels), valign: Gtk.Align.CENTER,
+            selected: Math.max(0, choices.ids.indexOf(rule.action)),
         });
+        showFullLabels(modifierDrop);
+        showFullLabels(actionDrop);
         let reverting = false;
         modifierDrop.connect('notify::selected', () => {
             if (reverting)
@@ -362,7 +415,7 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
         actionDrop.connect('notify::selected', () => {
             if (reverting)
                 return;
-            edit.change('action', ACTION_IDS[actionDrop.selected] ?? 'none');
+            edit.change('action', choices.ids[actionDrop.selected] ?? 'none');
         });
 
         const remove = new Gtk.Button({
@@ -372,7 +425,9 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
         remove.connect('clicked', () => edit.remove());
 
         row.add_suffix(modifierDrop);
-        row.add_suffix(actionDrop);
+        // A disabled action is kept as saved (the dropdown would silently change it).
+        if (availability === 'ok')
+            row.add_suffix(actionDrop);
         row.add_suffix(remove);
         return row;
     }
