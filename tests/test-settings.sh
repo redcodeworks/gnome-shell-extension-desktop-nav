@@ -128,7 +128,16 @@ const out = {
   ctx: [[false,false,true],[false,false,false],[true,false,false],[true,true,false]].map(([o,g,d]) =>
     a.pointerContext({overviewVisible: o, appGridShowing: g, onEmptyDesktop: d})),
   resolve: [['prev-workspace','app-grid'],['next-workspace','app-grid'],['toggle-overview','app-grid'],
-    ['prev-workspace','overview'],['next-workspace','desktop']].map(([x,c]) => a.resolveAction(x, c)),
+    ['app-grid-prev-page','app-grid'],['app-grid-next-page','app-grid'],['app-grid-next-page','desktop'],['app-grid-prev-page','overview']]
+    .map(([x,c]) => a.resolveAction(x, c)),
+  reserved: a.RESERVED_ACTIONS, offered: a.ACTIONS.map(([id]) => id), labels: a.ACTIONS.map(([, l]) => l),
+  ctxActions: Object.fromEntries(a.CONTEXTS.map(c => [c, a.actionsForContext(c).map(([id]) => id)])),
+  avail: [['move-window-prev-workspace', 'desktop'], ['move-window-next-workspace', 'app-grid'], ['app-grid-next-page', 'desktop'],
+    ['app-grid-next-page', 'app-grid'], ['prev-workspace', 'app-grid'], ['none', 'shell']].map(([x, c]) => a.actionAvailability(x, c)),
+  savedReserved: a.parseRules([[8, '', 'move-window-prev-workspace'], [9, 'ctrl', 'move-window-next-workspace']]).map(r => r.action),
+  trans: [['toggle-overview', 'hidden'], ['toggle-overview', 'window-picker'], ['toggle-overview', 'app-grid'],
+    ['toggle-app-grid', 'hidden'], ['toggle-app-grid', 'window-picker'], ['toggle-app-grid', 'app-grid'],
+    ['toggle-app-grid', 'x'], ['next-workspace', 'hidden']].map(([x, st]) => a.overviewTransition(x, st)),
   pages: [[0,5,-1],[0,5,1],[2,5,-1],[2,5,1],[4,5,1],[4,5,-1],[0,1,1],[0,1,-1],[0,0,1],[0,0,-1],[-1,0,1],[7,5,1],[null,5,1]]
     .map(([c,n,s]) => a.pageTarget(c, n, s)),
   ws: [[0,4,-1,0],[0,4,-1,1],[3,4,1,0],[3,4,1,1],[1,4,-1,0],[1,4,1,1],[0,1,1,1],[0,1,-1,1],[0,1,1,0],[0,0,1,1],[5,4,1,1]]
@@ -265,7 +274,7 @@ eq '.find.overviewNoShell' null "overview does not fall back to shell rules"
 eq '.find.appGridOnly' "app-grid:1:next-workspace" "app grid: its own rules"
 eq '.find.unknownMods' null "unknown modifier bits never match"
 eq '.ctx|join(" ")' "desktop shell overview app-grid" "pointer context: desktop, shell, overview, app-grid"
-eq '.resolve|map(if .type == "page" then "page\(.step)" else .id end)|join(" ")' "page-1 page1 toggle-overview prev-workspace next-workspace" "app grid: prev/next workspace page the grid, others as bound"
+eq '.resolve|map(if .type == "page" then "page\(.step)" else .id end)|join(" ")' "prev-workspace next-workspace toggle-overview page-1 page1 app-grid-next-page app-grid-prev-page" "prev/next workspace switch workspaces in every context (also the app grid); only the app grid page actions page the grid, and only in the app grid"
 eq '.pages|map(tostring)|join(" ")' "null 1 1 3 null 3 null null null null null null null" "page target: start, middle, end, one page, zero pages, bad input, no wrap"
 eq '.ws|map(tostring)|join(" ")' "null 3 null 0 0 2 null null null null null" "workspace target: first, middle, last, one workspace, wrap on and off"
 eq '.log[0]' null "debug line is null when off"
@@ -274,6 +283,25 @@ eq '.log[2]' "desktop-mouse-nav: button=9 state=0x0 mods=none context=shell matc
 eq '.log[3]' "desktop-mouse-nav: button=9 state=0x8000000 mods=other context=shell match=no rule=none action=none result=ignored reason=other-modifier-bits" "debug line with unknown modifier bits"
 eq '.log[4]' "desktop-mouse-nav: button=10 state=0x40 mods=super context=desktop match=no rule=none action=none result=ignored reason=no-rule-uses-button" "debug line for a press no rule uses"
 eq '.log[5]' "desktop-mouse-nav: button=8 state=0x4000000 mods=super context=desktop match=yes rule=desktop[0] action=next-workspace result=ran" "debug line for a Super press that ran"
+
+# 0.4.1: action list per context, reserved (disabled) ids, overview and app grid transitions
+eq '.offered|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid app-grid-prev-page app-grid-next-page" "offered actions"
+eq '.reserved|join(" ")' "move-window-prev-workspace move-window-next-workspace" "the window move ids stay reserved"
+eq '[.ids[]|select(startswith("move-window"))]|length' 2 "reserved ids are still known ids (saved rules are kept)"
+eq '.offered|map(select(startswith("move-window")))|length' 0 "the editor does not offer the window move actions"
+eq '.ctxActions.desktop|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid" "desktop: no page actions"
+eq '.ctxActions.shell|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid" "shell: no page actions"
+eq '.ctxActions.overview|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid" "overview: no page actions"
+eq '.ctxActions["app-grid"]|join(" ")' "none prev-workspace next-workspace toggle-overview toggle-app-grid app-grid-prev-page app-grid-next-page" "app grid: all, with the page actions"
+eq '.avail|join(" ")' "unavailable unavailable not-here ok ok ok" "action availability: reserved ids unavailable, page actions only in the app grid"
+eq '.savedReserved|join(" ")' "move-window-prev-workspace move-window-next-workspace" "a saved rule with a reserved id is kept by parseRules (shown as unavailable, not deleted)"
+eq '.trans|map(tostring)|join(" ")' "show hide grid-off show-apps grid-on grid-off null null" "overview and app grid toggles: state to next step (switch between picker and grid when open)"
+eq '.labels|map(length)|max < 30' true "action labels are short (no dropdown truncation)"
+grep -q "unavailable-in-this-version" "$ext/extension.js" && grep -q "actionAvailability" "$ext/extension.js" && pass "extension.js stops reserved actions with a debug reason" || fail "reserved action handling missing in extension.js"
+grep -q "Unavailable in this version" "$ext/prefs.js" && pass "prefs.js shows reserved rules as unavailable" || fail "unavailable text missing in prefs.js"
+grep -q "list_factory" "$ext/prefs.js" && grep -q "SignalListItemFactory" "$ext/prefs.js" && pass "prefs.js shows full dropdown labels (list factory)" || fail "list factory missing"
+grep -qE "^        case 'move-window|^            return this\._moveFocusedWindow|^    _moveFocusedWindow" "$ext/extension.js" && fail "window move dispatch is not commented out" || pass "window move dispatch is commented out"
+grep -q "button.checked = wantGrid" "$ext/extension.js" && grep -q "showApps()" "$ext/extension.js" && pass "extension.js switches states through the show-apps button with a showApps/hide fallback" || fail "state switching missing"
 
 # the only console call is console.log (console.debug is dropped by GJS by default), directly under if (this._debug)
 [ "$(grep -c 'console\.' "$ext/extension.js")" = 1 ] && grep -q 'console\.log(' "$ext/extension.js" && grep -B1 'console\.log' "$ext/extension.js" | grep -q 'if (this\._debug) {' && pass "extension.js logs once with console.log, directly behind if (this._debug)" || fail "logging is not a single console.log behind the flag"
@@ -299,13 +327,13 @@ grep -q "get_current_button" "$ext/prefs.js" && grep -q "get_current_event_state
 grep -q "Adw.ButtonRow" "$ext/prefs.js" && grep -q "list-add-symbolic" "$ext/prefs.js" && grep -q "user-trash-symbolic" "$ext/prefs.js" && pass "prefs.js has the add row and the delete button" || fail "add row or delete button missing"
 
 # extension.js handles every action id; prefs.js takes the ids only from actions.js
-for id in $(d '.ids[]|select(. != "none")'); do
+for id in $(d '(.ids - .reserved)[]|select(. != "none")'); do
     grep -q "'$id'" "$ext/extension.js" && pass "extension.js handles $id" || fail "extension.js does not handle $id"
     grep -q "'$id'" "$ext/prefs.js" && fail "prefs.js hard-codes $id (use actions.js)" || pass "prefs.js does not duplicate $id"
 done
 grep -q "from './actions.js'" "$ext/extension.js" && grep -q "from './actions.js'" "$ext/prefs.js" && pass "both import ./actions.js" || fail "missing actions.js import"
 # every quoted action-like id handled in extension.js's switch must be a known id
-for lit in $(grep -oE "case '[a-z-]+'" "$ext/extension.js" | cut -d"'" -f2); do
+for lit in $(sed -n '/^    _runAction(action) {/,/^    _toggleOverview/p' "$ext/extension.js" | grep -oE "^        case '[a-z-]+'" | cut -d"'" -f2); do
     case " $(d '.ids|join(" ")') " in *" $lit "*) ;; *) fail "extension.js handles unknown id $lit" ;; esac
 done
 finish

@@ -19,7 +19,7 @@
     <key name="rules-app-grid" type="a(uss)">
       <default>[]</default>
       <summary>Rules in the app grid</summary>
-      <description>Used while the app grid is showing. Previous and next workspace turn the pages of the grid. Each rule is (button number, modifiers, action id); the mouse wheel is button 4 (up) and 5 (down). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
+      <description>Used while the app grid is showing. The app grid page actions turn its pages. Each rule is (button number, modifiers, action id); the mouse wheel is button 4 (up) and 5 (down). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
     </key>
     <key name="wrap-workspaces" type="b">
       <default>false</default>
