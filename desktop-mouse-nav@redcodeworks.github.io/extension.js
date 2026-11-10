@@ -15,8 +15,8 @@ import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewContro
 
 import {
     CONTEXTS, WHEEL_DOWN, WHEEL_UP, anyRuleUsesButton, debugLine, findRule,
-    modifiersFromState, newWheelState, pageTarget, parseRules, pointerContext,
-    resolveAction, rulesKey, scrollInput, wheelConfig, wheelNote, wheelReset, wheelStep,
+    isEmulatedScroll, modifiersFromState, newWheelState, pageTarget, parseRules, pointerContext,
+    resolveAction, rulesKey, scrollInput, scrollMeta, wheelConfig, wheelNote, wheelReset, wheelStep,
     workspaceTarget,
 } from './actions.js';
 
@@ -47,6 +47,10 @@ const SCROLL_NAMES = new Map([
     [Clutter.ScrollDirection.RIGHT, 'right'],
     [Clutter.ScrollDirection.SMOOTH, 'smooth'],
 ]);
+
+// Events mutter synthesizes (the smooth twin of a wheel notch, the discrete steps of a
+// touchpad) carry this flag and are skipped (UNVERIFIED binding name; undefined = no filter).
+const EMULATED_FLAG = Clutter.EventFlags?.POINTER_EMULATED;
 
 // ControlsState.APP_GRID is 2 (UNVERIFIED export, hence the fallback).
 const APP_GRID_STATE = OverviewControls.ControlsState?.APP_GRID ?? 2;
@@ -131,6 +135,16 @@ export default class DesktopMouseNav extends Extension {
     // on it; everything else propagates.
     _onScroll(event) {
         const direction = SCROLL_NAMES.get(event.get_scroll_direction());
+        const flags = event.get_flags?.();
+        // Calibration fields, built only for the debug line.
+        const meta = this._debug
+            ? scrollMeta(direction, event.get_scroll_source?.(), flags)
+            : null;
+        if (isEmulatedScroll(flags, EMULATED_FLAG)) {
+            if (this._debug)
+                this._logPress(event, 0, {...NOT_USED, reason: 'emulated', note: meta});
+            return Clutter.EVENT_PROPAGATE;
+        }
         let dx = 0, dy = 0;
         if (direction === 'smooth') {
             try {
@@ -149,9 +163,10 @@ export default class DesktopMouseNav extends Extension {
 
         const button = input.dir === 'up' ? WHEEL_UP : WHEEL_DOWN;
         input.time = event.get_time();
+        input.meta = meta;
         const info = anyRuleUsesButton(this._rules, button)
             ? this._handlePress(event, button, input)
-            : NOT_USED;
+            : (this._debug ? {...NOT_USED, note: meta} : NOT_USED);
         this._logPress(event, button, info);
         return info.result === 'ran' || info.result === 'held'
             ? Clutter.EVENT_STOP

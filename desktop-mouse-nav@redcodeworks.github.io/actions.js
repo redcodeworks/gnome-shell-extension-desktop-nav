@@ -341,7 +341,24 @@ export function inputLabel(button) {
 
 // Extra debug fields of a wheel event: `scroll=smooth amount=0.50 acc=0.50`.
 export function wheelNote(input, state) {
-    return `scroll=${input.kind} amount=${input.amount.toFixed(2)} acc=${state.acc.toFixed(2)}`;
+    return `scroll=${input.kind} amount=${input.amount.toFixed(2)} acc=${state.acc.toFixed(2)}` +
+        (input.meta ? ` ${input.meta}` : '');
+}
+
+// True for a scroll event mutter synthesized from another one (the smooth twin of a wheel
+// notch, the discrete steps of a touchpad): its flags hold the POINTER_EMULATED bit.
+// `mask` = Clutter.EventFlags.POINTER_EMULATED, undefined when the binding lacks it
+// (then nothing is filtered here and wheelStep's duplicate check is the only guard).
+export function isEmulatedScroll(flags, mask) {
+    return Number.isInteger(flags) && Number.isInteger(mask) && mask !== 0 &&
+        (flags & mask) !== 0;
+}
+
+// Calibration fields of a scroll event for the debug line: `dir=smooth source=1 flags=0x2`
+// ('?' for what the binding did not give).
+export function scrollMeta(direction, source, flags) {
+    const num = v => Number.isInteger(v) ? String(v) : '?';
+    return `dir=${direction ?? '?'} source=${num(source)} flags=${Number.isInteger(flags) ? `0x${(flags >>> 0).toString(16)}` : '?'}`;
 }
 
 // The single debug line for a handled press, or null when logging is off. `state` = raw
