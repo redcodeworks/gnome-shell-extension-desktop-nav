@@ -14,22 +14,12 @@
     <key name="rules-overview" type="a(uss)">
       <default>[]</default>
       <summary>Rules in the overview</summary>
-      <description>Used while the overview is open and enabled. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
+      <description>Used while the overview is open. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
     </key>
     <key name="rules-app-grid" type="a(uss)">
       <default>[]</default>
       <summary>Rules in the app grid</summary>
-      <description>Used while the app grid is showing and enabled. Previous and next workspace turn the pages of the grid. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
-    </key>
-    <key name="work-in-overview" type="b">
-      <default>false</default>
-      <summary>Enable for the Overview</summary>
-      <description>Use the overview rules while the overview is open.</description>
-    </key>
-    <key name="work-in-app-grid" type="b">
-      <default>false</default>
-      <summary>Enable for the app grid</summary>
-      <description>Use the app grid rules while the app grid is showing.</description>
+      <description>Used while the app grid is showing. Previous and next workspace turn the pages of the grid. Each rule is (button number, modifiers, action id). Modifiers are a sorted '+' list of alt, ctrl, shift, super ('' for none), for example 'ctrl+shift'. The first matching rule wins.</description>
     </key>
     <key name="wrap-workspaces" type="b">
       <default>false</default>
@@ -39,7 +29,7 @@
     <key name="debug-log" type="b">
       <default>false</default>
       <summary>Log button presses</summary>
-      <description>For troubleshooting: write one debug line per handled mouse button press to the journal.</description>
+      <description>For troubleshooting: write one line per mouse button press to the journal.</description>
     </key>
   </schema>
 </schemalist>

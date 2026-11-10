@@ -16,8 +16,10 @@ fi
 mkdir "$tmp/js"; cp "$ext/actions.js" "$tmp/js/actions.mjs"
 cat > "$tmp/js/dump.mjs" <<'JS'
 import * as a from './actions.mjs';
-const M = {shift: 1, ctrl: 4, alt: 8, super: 1 << 26, ignore: 2 | 16 | 256 | 512 | 1024 | 2048 | 4096};
+const SUPER = 1 << 26, MOD4 = 64;
+const M = {shift: 1, ctrl: 4, alt: 8, super: SUPER | MOD4, ignore: 2 | 16 | 256 | 512 | 1024 | 2048 | 4096};
 const HYPER = 1 << 27, META = 1 << 28, MOD3 = 32, MOD5 = 128;
+const S = {shift: 1, ctrl: 4, alt: 8, super: SUPER, ignore: 2 | 16 | 256};
 const R = (b, m, act) => a.makeRule(b, m, act);
 const rulesBy = {
   desktop: [R(8, '', 'prev-workspace'), R(9, '', 'next-workspace'), R(8, 'ctrl', 'toggle-overview')],
@@ -33,8 +35,8 @@ const out = {
   norm: ['', 'Shift+ctrl', 'super+alt+ctrl+shift', 'ctrl+ctrl', ' Ctrl + Shift ', 'hyper', 'ctrl+meta', 5, null].map(x => a.normalizeModifiers(x)),
   combos: a.MODIFIER_COMBOS.length, combo0: a.MODIFIER_COMBOS[0], comboUnique: new Set(a.MODIFIER_COMBOS.map(c => c[0])).size,
   comboAllNormal: a.MODIFIER_COMBOS.every(([m]) => a.normalizeModifiers(m) === m),
-  fromState: [0, 1, 4, 8, 1 << 26, 1 | 4, 1 | 2, 4 | 16, 4 | 256, 4 | 1024].map(s => a.modifiersFromState(s, M, true)),
-  fromStateOther: [HYPER, META, MOD3, MOD5, 4 | HYPER, 4 | META, 4 | 64].map(s => a.modifiersFromState(s, M, true)),
+  fromState: [0, 1, 4, 8, 1 << 26, 1 | 4, 1 | 2, 4 | 16, 4 | 256, 4 | 1024, MOD4, SUPER | MOD4, 4 | MOD4, 4 | SUPER, 4 | SUPER | MOD4 | 2 | 16, 1 | 2 | 8 | MOD4].map(s => a.modifiersFromState(s, M, true)),
+  fromStateOther: [HYPER, META, MOD3, MOD5, 4 | HYPER, 4 | META, MOD4 | HYPER].map(s => a.modifiersFromState(s, M, true)),
   fromStateLoose: [0, 4 | HYPER, 1 | 4 | 8 | (1 << 26)].map(s => a.modifiersFromState(s, a.GTK_MASKS, false)),
   names: [2, 8, 9, 10, 12].map(a.buttonName),
   unbind: [[1, ''], [3, ''], [1, 'ctrl'], [3, 'shift'], [2, ''], [2, 'ctrl'], [8, ''], [9, 'alt+super'], [12, ''], [0, ''], [8, 'bogus'], [2.5, ''], ['8', '']].map(([b, m]) => a.unbindableReason(b, m)),
@@ -45,6 +47,14 @@ const out = {
   inputKind: a.makeRule(8, '', 'none').input.kind,
   dup: [[8, '', -1], [8, '', 0], [9, '', -1], [8, 'ctrl', -1], [8, 'Ctrl', -1], [8, 'shift', -1], [10, '', -1]].map(([b, m, e]) => a.findDuplicate(rulesBy.desktop, b, m, e)),
   match: [[8, ''], [8, 'ctrl'], [9, ''], [9, 'ctrl'], [8, null], [10, ''], [8, 'ctrl+shift']].map(([b, m]) => a.matchRule(rulesBy.desktop, b, m)),
+  superMatch: [[SUPER], [MOD4], [SUPER | MOD4], [SUPER | 2], [MOD4 | 16], [4 | MOD4], [4 | SUPER | MOD4], [4], [0], [SUPER | 4], [MOD4 | 1]].map(([st]) =>
+    a.matchRule([R(8, 'super', 'none'), R(9, 'ctrl+super', 'none')], 8, a.modifiersFromState(st, M, true))),
+  superCtrlMatch: [[4 | SUPER], [4 | MOD4], [4 | SUPER | MOD4], [SUPER], [4]].map(([st]) =>
+    a.matchRule([R(8, 'super', 'none'), R(9, 'ctrl+super', 'none')], 9, a.modifiersFromState(st, M, true))),
+  noSuperRule: [[0], [2], [SUPER], [MOD4], [SUPER | MOD4], [4]].map(([st]) =>
+    a.matchRule([R(8, '', 'none')], 8, a.modifiersFromState(st, M, true))),
+  emptyContexts: ['overview', 'app-grid', 'desktop', 'shell'].map(c => a.findRule({desktop: [], shell: [], overview: [], 'app-grid': []}, c, 8, '')),
+  hex: [0x40, 1 << 26, 0, 4 | 2048, 'x', null, -1].map(a.hexState),
   firstWins: a.matchRule([R(8, '', 'none'), R(8, '', 'toggle-overview')], 8, ''),
   uses: [8, 9, 10, 2, 1].map(b => a.anyRuleUsesButton(rulesBy, b)),
   usesEmpty: a.anyRuleUsesButton({desktop: [], shell: []}, 8),
@@ -69,14 +79,11 @@ const out = {
     .map(([c,n,s]) => a.pageTarget(c, n, s)),
   ws: [[0,4,-1,0],[0,4,-1,1],[3,4,1,0],[3,4,1,1],[1,4,-1,0],[1,4,1,1],[0,1,1,1],[0,1,-1,1],[0,1,1,0],[0,0,1,1],[5,4,1,1]]
     .map(([i,n,s,w]) => a.workspaceTarget(i, n, s, !!w)),
-  log: [a.debugLine(false,8,'','desktop',null,'ran'),
-    a.debugLine(true,8,'ctrl','app-grid',{context:'app-grid',index:1,rule:R(8,'ctrl','prev-workspace')},'at-end'),
-    a.debugLine(true,9,'','shell',null,'propagated'), a.debugLine(true,9,null,'shell',null,'propagated')],
-  gate: Object.fromEntries([[1,1],[1,0],[0,1],[0,0]].flatMap(([o,g]) =>
-    [[true,true],[true,false],[false,false]].map(([v,grid]) =>
-      [`flags${o}${g}/visible${+v}grid${+grid}`, a.overviewAllowed({overviewVisible: v, appGridShowing: grid}, {inOverview: !!o, inAppGrid: !!g})]))),
-  switchKeys: Object.keys(a.CONTEXT_SWITCHES).map(c => a.CONTEXT_SWITCHES[c][0]),
-  switchContexts: Object.keys(a.CONTEXT_SWITCHES),
+  log: [a.debugLine(false,8,0,'','desktop',null,'ran'),
+    a.debugLine(true,8,0x44,'ctrl','app-grid',{context:'app-grid',index:1,rule:R(8,'ctrl','prev-workspace')},'at-end'),
+    a.debugLine(true,9,0,'','shell',null,'propagated','no-matching-rule'), a.debugLine(true,9,1<<27,null,'shell',null,'ignored','other-modifier-bits'),
+    a.debugLine(true,10,0x40,'super','desktop',null,'ignored','no-rule-uses-button'),
+    a.debugLine(true,8,SUPER,'super','desktop',{context:'desktop',index:0,rule:R(8,'super','next-workspace')},'ran')],
 };
 console.log(JSON.stringify(out));
 JS
@@ -91,8 +98,8 @@ grep -q "<schema id=\"$(d .schema)\"" "$xml" && pass "schema XML declares that i
 
 # keys: each key, its type and its default, parsed from the XML
 awk -F'"' '/<key name=/ {k=$2; t=$4} /<default>/ {gsub(/.*<default>|<\/default>.*/, ""); print k "|" t "|" $0}' "$xml" | sort > "$tmp/defaults"
-want=$'debug-log|b|false\nrules-app-grid|a(uss)|[]\nrules-desktop|a(uss)|[(8, \x27\x27, \x27prev-workspace\x27), (9, \x27\x27, \x27next-workspace\x27)]\nrules-overview|a(uss)|[]\nrules-shell|a(uss)|[]\nwork-in-app-grid|b|false\nwork-in-overview|b|false\nwrap-workspaces|b|false'
-[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema keys and defaults: four a(uss) rule keys (desktop 8 prev, 9 next; others empty), booleans off" || { fail "schema keys and defaults"; cat "$tmp/defaults" >&2; }
+want=$'debug-log|b|false\nrules-app-grid|a(uss)|[]\nrules-desktop|a(uss)|[(8, \x27\x27, \x27prev-workspace\x27), (9, \x27\x27, \x27next-workspace\x27)]\nrules-overview|a(uss)|[]\nrules-shell|a(uss)|[]\nwrap-workspaces|b|false'
+[ "$(cat "$tmp/defaults")" = "$want" ] && pass "schema keys and defaults: four a(uss) rule keys (desktop 8 prev, 9 next; others empty), wrap and debug off, no overview or app grid switches" || { fail "schema keys and defaults"; cat "$tmp/defaults" >&2; }
 for old in desktop-back desktop-forward shell-back shell-forward; do
     grep -q "\"$old\"" "$xml" && fail "old key $old still in the schema" || pass "old key $old is gone"
 done
@@ -115,8 +122,11 @@ fi
 eq '.ids|length > 5' true "action ids exist"
 eq '.contexts|join(" ")' "desktop shell overview app-grid" "contexts are desktop, shell, overview, app-grid"
 eq '.keys|join(" ")' "rules-desktop rules-shell rules-overview rules-app-grid" "one rules key per context"
-eq '.switchKeys|join(" ")' "work-in-overview work-in-app-grid" "overview and app grid keep their switches"
-eq '.switchContexts|join(" ")' "overview app-grid" "switches belong to the overview and app grid contexts"
+eq '.boolKeys|join(" ")' "wrap-workspaces debug-log" "only the wrap and debug switches remain"
+for gone in work-in-overview work-in-app-grid CONTEXT_SWITCHES overviewAllowed _flags; do
+    grep -rq "$gone" "$ext"/*.js "$xml" && fail "$gone is still in the sources" || pass "$gone is gone"
+done
+eq '.emptyContexts|map(tostring)|join(" ")' "null null null null" "a context with no rules does nothing"
 
 # modifiers
 eq '.norm|map(tostring)|join("|")' "|ctrl+shift|alt+ctrl+shift+super|ctrl|ctrl+shift|null|null|null|null" "modifier strings normalize to sorted parts (unknown parts and non-strings are null)"
@@ -124,7 +134,11 @@ eq '.combos' 16 "16 modifier combinations"
 eq '.comboUnique' 16 "all combinations differ"
 eq '.combo0|join("/")' "/None" "None comes first"
 eq '.comboAllNormal' true "every combination is a normalized string"
-eq '.fromState|map(tostring)|join("|")' "|shift|ctrl|alt|super|ctrl+shift|shift|ctrl|ctrl|ctrl" "state to modifiers: lock, num lock and button bits are ignored"
+eq '.fromState|map(tostring)|join("|")' "|shift|ctrl|alt|super|ctrl+shift|shift|ctrl|ctrl|ctrl|super|super|ctrl+super|ctrl+super|ctrl+super|alt+shift+super" "state to modifiers: lock, num lock and button bits are ignored; Super is SUPER_MASK or MOD4_MASK or both"
+eq '.superMatch|map(tostring)|join(" ")' "0 0 0 0 0 -1 -1 -1 -1 -1 -1" "a Super rule matches with SUPER_MASK only, MOD4_MASK only or both (lock bits ignored), not without or with extra modifiers"
+eq '.superCtrlMatch|map(tostring)|join(" ")' "1 1 1 -1 -1" "Ctrl+Super matches with either Super bit, not Ctrl or Super alone"
+eq '.noSuperRule|map(tostring)|join(" ")' "0 0 -1 -1 -1 -1" "a rule without Super does not match when Super is held (either bit); lock bits ignored"
+eq '.hex|join("|")' "0x40|0x4000000|0x0|0x804|unknown|unknown|0xffffffff" "raw state as hex"
 eq '.fromStateOther|map(tostring)|join("|")' "null|null|null|null|null|null|null" "Hyper, Meta and other modifier bits mean not exactly any rule"
 eq '.fromStateLoose|map(tostring)|join("|")' "|ctrl|alt+ctrl+shift+super" "non-strict (preferences) reading looks at the four bits only"
 eq '.names|join("|")' "Middle|Back|Forward|Button 10|Button 12" "button names"
@@ -161,26 +175,22 @@ eq '.resolve|map(if .type == "page" then "page\(.step)" else .id end)|join(" ")'
 eq '.pages|map(tostring)|join(" ")' "null 1 1 3 null 3 null null null null null null null" "page target: start, middle, end, one page, zero pages, bad input, no wrap"
 eq '.ws|map(tostring)|join(" ")' "null 3 null 0 0 2 null null null null null" "workspace target: first, middle, last, one workspace, wrap on and off"
 eq '.log[0]' null "debug line is null when off"
-eq '.log[1]' "desktop-mouse-nav: button=8 mods=ctrl context=app-grid rule=app-grid[1] action=prev-workspace result=at-end" "debug line: button, modifiers, context, rule, action, result"
-eq '.log[2]' "desktop-mouse-nav: button=9 mods=none context=shell rule=none action=none result=propagated" "debug line without a rule"
-eq '.log[3]' "desktop-mouse-nav: button=9 mods=other context=shell rule=none action=none result=propagated" "debug line with unknown modifier bits"
+eq '.log[1]' "desktop-mouse-nav: button=8 state=0x44 mods=ctrl context=app-grid match=yes rule=app-grid[1] action=prev-workspace result=at-end" "debug line: button, raw state in hex, modifiers, context, match, rule, action, result"
+eq '.log[2]' "desktop-mouse-nav: button=9 state=0x0 mods=none context=shell match=no rule=none action=none result=propagated reason=no-matching-rule" "debug line without a rule"
+eq '.log[3]' "desktop-mouse-nav: button=9 state=0x8000000 mods=other context=shell match=no rule=none action=none result=ignored reason=other-modifier-bits" "debug line with unknown modifier bits"
+eq '.log[4]' "desktop-mouse-nav: button=10 state=0x40 mods=super context=desktop match=no rule=none action=none result=ignored reason=no-rule-uses-button" "debug line for a press no rule uses"
+eq '.log[5]' "desktop-mouse-nav: button=8 state=0x4000000 mods=super context=desktop match=yes rule=desktop[0] action=next-workspace result=ran" "debug line for a Super press that ran"
 
-# the only console.debug is behind the flag
-[ "$(grep -c 'console\.' "$ext/extension.js")" = 1 ] && grep -B3 'console\.debug' "$ext/extension.js" | grep -q 'if (line)' && grep -B6 'console\.debug' "$ext/extension.js" | grep -q 'if (this._debug)' && pass "extension.js logs once, behind this._debug and debugLine" || fail "logging is not gated by the flag"
+# the only console call is console.log (console.debug is dropped by GJS by default), directly under if (this._debug)
+[ "$(grep -c 'console\.' "$ext/extension.js")" = 1 ] && grep -q 'console\.log(' "$ext/extension.js" && grep -B1 'console\.log' "$ext/extension.js" | grep -q 'if (this\._debug) {' && pass "extension.js logs once with console.log, directly behind if (this._debug)" || fail "logging is not a single console.log behind the flag"
+grep -rq 'console\.debug' "$ext"/*.js && fail "console.debug is dropped by GJS by default, use console.log behind the flag" || pass "no console.debug"
 grep -q "get_boolean('debug-log')" "$ext/extension.js" && grep -q "get_boolean('wrap-workspaces')" "$ext/extension.js" && pass "extension.js caches debug-log and wrap-workspaces" || fail "flags not cached"
 grep -q "parseRules" "$ext/extension.js" && grep -q "rulesKey" "$ext/extension.js" && pass "extension.js caches parsed rules per context" || fail "rules not cached"
 grep -q "settings.get_\|_settings.get_" <(sed -n '/^    _onCapturedEvent(event)/,$p' "$ext/extension.js") && fail "a press reads GSettings" || pass "no GSettings read in the press path"
 grep -qE "anywhere|desktop-back|shell-forward" "$ext/extension.js" "$ext/prefs.js" "$ext/actions.js" "$xml" && fail "old key or context names still in the sources" || pass "no old key or context names left in the sources"
 grep -q "button === 1 || button === 3" "$ext/extension.js" && pass "extension.js never touches buttons 1 and 3" || fail "buttons 1 and 3 not excluded in extension.js"
-grep -q "SUPER_MASK" "$ext/extension.js" && grep -q "MOD1_MASK" "$ext/extension.js" && pass "extension.js reads Shift, Ctrl, Alt (MOD1) and Super from the event state" || fail "modifier masks missing"
+grep -q "SUPER_MASK" "$ext/extension.js" && grep -q "MOD4_MASK" "$ext/extension.js" && grep -q "MOD1_MASK" "$ext/extension.js" && pass "extension.js reads Shift, Ctrl, Alt (MOD1) and Super (SUPER_MASK or MOD4_MASK) from the event state" || fail "modifier masks missing"
 grep -qiE "wheel|scroll" "$ext/extension.js" "$ext/prefs.js" "$ext/actions.js" && fail "wheel code present (a later brief)" || pass "no wheel code"
-
-# overview gate
-g() { d ".gate[\"$1\"]"; }
-[ "$(g flags00/visible1grid1)" = false ] && [ "$(g flags10/visible1grid1)" = false ] && [ "$(g flags01/visible1grid1)" = true ] && pass "app grid showing: only with work-in-app-grid" || fail "gate: app grid"
-[ "$(g flags00/visible1grid0)" = false ] && [ "$(g flags01/visible1grid0)" = false ] && [ "$(g flags10/visible1grid0)" = true ] && pass "overview showing: only with work-in-overview" || fail "gate: overview"
-[ "$(g flags00/visible0grid0)" = true ] && [ "$(g flags11/visible0grid0)" = true ] && pass "neither showing: always allowed" || fail "gate: neither"
-grep -q "overviewAllowed" "$ext/extension.js" && pass "extension.js gates on overviewAllowed" || fail "extension.js does not gate"
 
 # prefs.js must not use binding mappings (their GJS callbacks crashed the prefs process)
 grep -nE "bind_with_mapping|\.bind\([^)]*,[^)]*,[^)]*,[^)]*," "$ext/prefs.js" >/dev/null && fail "prefs.js uses a binding mapping" || pass "prefs.js uses no binding mapping"

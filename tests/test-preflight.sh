@@ -10,11 +10,14 @@ mk() { # NAME : fresh fixture dir seeded from the real extension
     cp -r "$root/$uuid/." "$tmp/f-$1/"
     echo "$tmp/f-$1"
 }
+# nolog NAME : drop the extension's own gated console.log call from a fixture
+nolog() { sed -i '/console\.log(this\._pressLine/d' "$tmp/f-$1/extension.js"; }
 zipit() { rm -f "$tmp/$1.zip"; make_zip "$tmp/f-$1" "$tmp/$1.zip"; }
 meta() { jq "$2" "$tmp/f-$1/metadata.json" > "$tmp/m" && mv "$tmp/m" "$tmp/f-$1/metadata.json"; }
 
 mk good >/dev/null; zipit good
 expect_rc 0 "the real extension passes" pf "$tmp/good.zip"
+expect_out 'WARN \| code \| extension.js: one console.log behind if \(this._debug\)' "its single gated console.log is a warning"
 expect_out 'Result: \*\*PASS' "pass report"
 
 # fixtures that must FAIL
@@ -41,6 +44,18 @@ expect_rc 1 "deprecated module fails" pf "$tmp/lang.zip"
 
 mk log >/dev/null; printf "console.log('x');\n" >> "$tmp/f-log/extension.js"; zipit log
 expect_rc 1 "console.log fails" pf "$tmp/log.zip"
+
+mk log2 >/dev/null; nolog log2; printf "if (this._debug)\n    console.log('x');\n" >> "$tmp/f-log2/extension.js"; zipit log2
+expect_rc 0 "one console.log behind if (this._debug) is only a warning" pf "$tmp/log2.zip"; expect_out 'WARN \| code.*behind if \(this._debug\)' "gated console.log warning shown"
+
+mk log3 >/dev/null; nolog log3; printf "if (this._debug) {\n    console.log('x');\n}\nif (this._debug) {\n    console.log('y');\n}\n" >> "$tmp/f-log3/extension.js"; zipit log3
+expect_rc 1 "two gated console.log calls fail" pf "$tmp/log3.zip"
+
+mk log4 >/dev/null; nolog log4; printf "if (this._other) {\n    console.log('x');\n}\n" >> "$tmp/f-log4/extension.js"; zipit log4
+expect_rc 1 "console.log behind another condition fails" pf "$tmp/log4.zip"
+
+mk log5 >/dev/null; nolog log5; printf "if (this._debug) {\n    foo();\n    console.log('x');\n}\n" >> "$tmp/f-log5/extension.js"; zipit log5
+expect_rc 1 "console.log not directly under the gate fails" pf "$tmp/log5.zip"
 
 mk sub >/dev/null; printf "const p = Gio.Subprocess.new(['ls'], 0);\n" >> "$tmp/f-sub/extension.js"; zipit sub
 expect_rc 1 "Gio.Subprocess fails" pf "$tmp/sub.zip"
