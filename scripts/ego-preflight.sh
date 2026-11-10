@@ -133,7 +133,22 @@ for f in "${js_files[@]}"; do
         add FAIL "code" "$n: deprecated module (ByteArray, Lang or Mainloop)"
     fi
     grep -qE '(^|[^A-Za-z_])imports\.' "$f" && add WARN "code" "$n: legacy imports.* syntax (use ESM imports)"
-    grep -qE '\bconsole\.log\(' "$f" && add FAIL "code" "$n: console.log (remove it; the guidelines allow no debug noise)"
+    # console.log: exactly one call, directly under an `if (this._debug)` gate, is a WARN
+    # (opt-in troubleshooting output); any other console.log (ungated or repeated) is a FAIL.
+    nlog=$(grep -cE '\bconsole\.log\(' "$f" || true)
+    if [ "$nlog" -gt 0 ]; then
+        if [ "$nlog" -eq 1 ] && awk '
+            /^[[:space:]]*if \(this\._debug\)[[:space:]]*(\{[[:space:]]*)?$/ { gate = 1; next }
+            /^[[:space:]]*if \(this\._debug\)[[:space:]]*\{?[[:space:]]*console\.log\(/ { ok = 1; next }
+            /console\.log\(/ { if (gate) ok = 1; gate = 0; next }
+            /^[[:space:]]*$/ { next }
+            { gate = 0 }
+            END { exit ok ? 0 : 1 }' "$f"; then
+            add WARN "code" "$n: one console.log behind if (this._debug) (opt-in troubleshooting output; off by default)"
+        else
+            add FAIL "code" "$n: console.log (remove it, or keep exactly one behind if (this._debug); the guidelines allow no debug noise)"
+        fi
+    fi
     grep -qE '(^|[^A-Za-z_.])(print|log)\(|\bconsole\.debug\(' "$f" && add WARN "code" "$n: console.debug/print/log present: make sure it is not inside an event handler or hot path"
     grep -qE 'Gio\.Subprocess|SubprocessLauncher' "$f" && add FAIL "code" "$n: Gio.Subprocess is not allowed here"
     grep -qE 'GLib\.spawn_|GLib\.spawn\b' "$f" && add WARN "code" "$n: GLib.spawn*: spawning processes needs a justification"

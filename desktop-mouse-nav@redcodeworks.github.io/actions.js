@@ -76,7 +76,9 @@ export function modifierLabel(mods) {
 export const GTK_MASKS = {shift: 1, ctrl: 4, alt: 8, super: 1 << 26, ignore: 0};
 
 // Modifier string from a numeric event state. `masks` = {shift, ctrl, alt, super, ignore}
-// (the Clutter values in extension.js, GTK_MASKS in prefs.js). In `strict` mode any set
+// (the Clutter values in extension.js, GTK_MASKS in prefs.js). Each entry may be several
+// bits OR-ed together: any of them counts. extension.js passes SUPER_MASK | MOD4_MASK as
+// `super`, because Super may arrive as either bit (UNVERIFIED which one Shell 51 uses). In `strict` mode any set
 // bit that is neither one of the four modifiers nor in `ignore` (Hyper, Meta, other
 // modifier bits) makes the result null: such a press is not exactly any rule.
 export function modifiersFromState(state, masks, strict) {
@@ -183,18 +185,10 @@ export function findRule(rulesByContext, pointer, button, mods) {
     return null;
 }
 
-// Switches at the top of the Overview and App grid groups: [key, title, subtitle].
-export const CONTEXT_SWITCHES = {
-    overview: ['work-in-overview', 'Enable for the Overview',
-        'Run the rules below while the overview is open.'],
-    'app-grid': ['work-in-app-grid', 'Enable for the app grid',
-        'Run the rules below while the app grid is showing. Previous and next workspace turn the pages of the grid instead.'],
-};
-
 // Boolean settings of the "Advanced" group (default false).
 export const ADVANCED_SWITCHES = [
     ['debug-log', 'Log button presses',
-        'For troubleshooting; off by default. Writes one line per handled mouse button press to the journal.'],
+        'For troubleshooting; off by default. Writes one line per mouse button press that reaches the extension (including ignored ones, with the reason) to the journal.'],
 ];
 
 // Boolean setting of the "Workspaces" group (default false).
@@ -203,18 +197,7 @@ export const WORKSPACE_SWITCHES = [
         'Back on the first workspace goes to the last one, and Forward on the last workspace goes to the first one.'],
 ];
 
-export const BOOLEAN_KEYS = [...Object.values(CONTEXT_SWITCHES), ...WORKSPACE_SWITCHES, ...ADVANCED_SWITCHES].map(([key]) => key);
-
-// Gate for the overview. `state` = {overviewVisible, appGridShowing}; `flags` =
-// {inOverview, inAppGrid}. App grid showing -> only with the app grid flag; else
-// overview visible -> only with the overview flag; neither showing -> always.
-export function overviewAllowed(state, flags) {
-    if (state.overviewVisible && state.appGridShowing)
-        return !!flags.inAppGrid;
-    if (state.overviewVisible)
-        return !!flags.inOverview;
-    return true;
-}
+export const BOOLEAN_KEYS = [...WORKSPACE_SWITCHES, ...ADVANCED_SWITCHES].map(([key]) => key);
 
 // Where the pointer is, for a press the extension sees: 'app-grid' and 'overview'
 // while the overview is open, else 'desktop' (empty desktop) or 'shell' (another
@@ -248,14 +231,22 @@ export function pageTarget(current, nPages, step) {
     return target < 0 || target >= nPages ? null : target;
 }
 
-// The single debug line for a press, or null when logging is off. `found` is the result
-// of findRule (or null); result: 'ran', 'propagated' or 'at-end'.
-export function debugLine(enabled, button, mods, context, found, result) {
+// Raw event state as hex for the debug line ('0x40'), 'unknown' when not an integer.
+export function hexState(state) {
+    return Number.isInteger(state) ? `0x${(state >>> 0).toString(16)}` : 'unknown';
+}
+
+// The single debug line for a handled press, or null when logging is off. `state` = raw
+// event modifier state, `mods` the normalized string (null = unknown bits held), `found`
+// the result of findRule (or null), result 'ran', 'propagated', 'at-end' or 'ignored',
+// `reason` a short note for presses that did not run (or null).
+export function debugLine(enabled, button, state, mods, context, found, result, reason = null) {
     if (!enabled)
         return null;
     const rule = found ? `${found.context}[${found.index}]` : 'none';
     const action = found ? found.rule.action : 'none';
-    return `desktop-mouse-nav: button=${button} mods=${mods === null ? 'other' : mods || 'none'} context=${context} rule=${rule} action=${action} result=${result}`;
+    const note = reason ? ` reason=${reason}` : '';
+    return `desktop-mouse-nav: button=${button} state=${hexState(state)} mods=${mods === null ? 'other' : mods || 'none'} context=${context} match=${found ? 'yes' : 'no'} rule=${rule} action=${action} result=${result}${note}`;
 }
 
 // Target workspace index for a step (-1/+1) from the active one, or null (do nothing,

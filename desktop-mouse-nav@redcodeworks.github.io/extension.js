@@ -14,22 +14,28 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
 import {
-    CONTEXTS, anyRuleUsesButton, debugLine, findRule, modifiersFromState, overviewAllowed,
+    CONTEXTS, anyRuleUsesButton, debugLine, findRule, modifiersFromState,
     pageTarget, parseRules, pointerContext, resolveAction, rulesKey, workspaceTarget,
 } from './actions.js';
 
 // Modifier bits of event.get_state() that count. Everything else except `ignore` (Caps
-// Lock, Num Lock, the button bits) means "not exactly the rule". UNVERIFIED on Shell 51.
+// Lock, Num Lock, the button bits) means "not exactly the rule". Super counts as either
+// SUPER_MASK (1<<26) or MOD4_MASK (1<<6): which one Shell 51 reports is UNVERIFIED.
 const MODIFIER_MASKS = {
     shift: Clutter.ModifierType.SHIFT_MASK,
     ctrl: Clutter.ModifierType.CONTROL_MASK,
     alt: Clutter.ModifierType.MOD1_MASK,
-    super: Clutter.ModifierType.SUPER_MASK,
+    super: Clutter.ModifierType.SUPER_MASK | Clutter.ModifierType.MOD4_MASK,
     ignore: Clutter.ModifierType.LOCK_MASK | Clutter.ModifierType.MOD2_MASK |
         Clutter.ModifierType.BUTTON1_MASK | Clutter.ModifierType.BUTTON2_MASK |
         Clutter.ModifierType.BUTTON3_MASK | Clutter.ModifierType.BUTTON4_MASK |
         Clutter.ModifierType.BUTTON5_MASK,
 };
+
+// Result for a press of a button no rule uses (shared, so nothing is allocated per press).
+const NOT_USED = Object.freeze({
+    mods: null, context: null, found: null, result: 'ignored', reason: 'no-rule-uses-button',
+});
 
 // ControlsState.APP_GRID is 2 (UNVERIFIED export, hence the fallback).
 const APP_GRID_STATE = OverviewControls.ControlsState?.APP_GRID ?? 2;
@@ -55,7 +61,6 @@ export default class DesktopMouseNav extends Extension {
         }
         this._settings = null;
         this._rules = null;
-        this._flags = null;
         this._debug = false;
         this._pressedButton = null;
     }
@@ -65,10 +70,6 @@ export default class DesktopMouseNav extends Extension {
         this._rules = {};
         for (const context of CONTEXTS)
             this._rules[context] = parseRules(this._settings.get_value(rulesKey(context)).recursiveUnpack());
-        this._flags = {
-            inOverview: this._settings.get_boolean('work-in-overview'),
-            inAppGrid: this._settings.get_boolean('work-in-app-grid'),
-        };
         this._wrap = this._settings.get_boolean('wrap-workspaces');
         this._debug = this._settings.get_boolean('debug-log');
     }
@@ -94,16 +95,12 @@ export default class DesktopMouseNav extends Extension {
         }
 
         // No rule at all uses this button: nothing to decide.
-        if (!anyRuleUsesButton(this._rules, button))
-            return Clutter.EVENT_PROPAGATE;
-
-        const info = this._handlePress(event, button);
-        // The only log call; nothing is logged unless the setting is on.
+        const info = anyRuleUsesButton(this._rules, button)
+            ? this._handlePress(event, button)
+            : NOT_USED;
+        // The only log call; nothing is logged (and nothing computed) unless the setting is on.
         if (this._debug) {
-            const line = debugLine(this._debug, button, info.mods, info.context ?? this._contextOf(event),
-                info.found, info.result);
-            if (line)
-                console.debug(line);
+            console.log(this._pressLine(event, button, info));
         }
         if (info.result !== 'ran')
             return Clutter.EVENT_PROPAGATE;
@@ -112,21 +109,32 @@ export default class DesktopMouseNav extends Extension {
         return Clutter.EVENT_STOP;
     }
 
-    // Decides and runs; returns {mods, context, found, result}, result 'ran', 'propagated'
-    // or 'at-end'. `context` stays null when it was not needed (and logging is off).
+    // The debug line of a press (only called with debug-log on).
+    _pressLine(event, button, info) {
+        const state = event.get_state();
+        // Presses that returned before the modifier check still show their modifiers.
+        const mods = info.mods ?? modifiersFromState(state, MODIFIER_MASKS, true);
+        return debugLine(true, button, state, mods, info.context ?? this._contextOf(event),
+            info.found, info.result, info.reason);
+    }
+
+    // Decides and runs; returns {mods, context, found, result, reason}, result 'ran',
+    // 'propagated', 'at-end' or 'ignored'. `context` stays null when it was not needed.
     _handlePress(event, button) {
-        const info = {mods: null, context: null, found: null, result: 'propagated'};
-        if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible))
+        const info = {mods: null, context: null, found: null, result: 'ignored', reason: null};
+        if (Main.sessionMode.isLocked || (Main.modalCount > 0 && !Main.overview.visible)) {
+            info.reason = 'locked-or-modal';
             return info;
+        }
 
         info.mods = modifiersFromState(event.get_state(), MODIFIER_MASKS, true);
-        if (info.mods === null)
+        if (info.mods === null) {
+            info.reason = 'other-modifier-bits';
             return info;
+        }
 
         const overviewVisible = Main.overview.visible;
         const appGridShowing = overviewVisible && this._appGridShowing();
-        if (!overviewAllowed({overviewVisible, appGridShowing}, this._flags))
-            return info;
 
         // The actor lookup only when a desktop rule uses this button.
         const desktopUsed = this._rules.desktop.some(rule => rule.input.button === button);
@@ -136,8 +144,11 @@ export default class DesktopMouseNav extends Extension {
         });
         info.context = context;
         info.found = findRule(this._rules, context, button, info.mods);
-        if (!info.found)
+        if (!info.found) {
+            info.result = 'propagated';
+            info.reason = 'no-matching-rule';
             return info;
+        }
 
         const todo = resolveAction(info.found.rule.action, context);
         try {
@@ -146,6 +157,7 @@ export default class DesktopMouseNav extends Extension {
                 : this._runAction(todo.id);
         } catch (e) {
             info.result = 'propagated';
+            info.reason = 'action-threw';
         }
         return info;
     }

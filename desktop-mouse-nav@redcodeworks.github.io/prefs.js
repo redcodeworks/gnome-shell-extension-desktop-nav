@@ -12,7 +12,7 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {
-    ACTIONS, ADVANCED_SWITCHES, CONTEXTS, CONTEXT_SWITCHES, GTK_MASKS, MODIFIER_COMBOS,
+    ACTIONS, ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS,
     WORKSPACE_SWITCHES, buttonName, findDuplicate, makeRule, modifiersFromState,
     parseRules, rulesKey, serializeRules, unbindableReason,
 } from './actions.js';
@@ -28,11 +28,11 @@ const CONTEXT_TEXT = {
     },
     overview: {
         title: 'Overview',
-        description: 'Used while the overview is open, when enabled here.',
+        description: 'Used while the overview is open. With no rules here, nothing happens in the overview.',
     },
     'app-grid': {
         title: 'App grid',
-        description: 'Used while the app grid is showing, when enabled here. Previous and next workspace turn the pages of the grid instead.',
+        description: 'Used while the app grid is showing. With no rules here, nothing happens in the app grid. Previous and next workspace turn the pages of the grid instead.',
     },
 };
 
@@ -192,14 +192,6 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
     _buildContextGroup(window, settings, context, toast) {
         const group = new Adw.PreferencesGroup(CONTEXT_TEXT[context]);
         const key = rulesKey(context);
-
-        const switchSpec = CONTEXT_SWITCHES[context];
-        if (switchSpec) {
-            const [switchKey, title, subtitle] = switchSpec;
-            const row = new Adw.SwitchRow({title, subtitle});
-            settings.bind(switchKey, row, 'active', Gio.SettingsBindFlags.DEFAULT);
-            group.add(row);
-        }
 
         const addRow = new Adw.ButtonRow({title: 'Add rule', start_icon_name: 'list-add-symbolic'});
         let rows = [];
