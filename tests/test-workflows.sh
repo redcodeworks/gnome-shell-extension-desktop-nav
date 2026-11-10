@@ -19,7 +19,7 @@ for f in files:
     on = y.get(True, y.get("on"))
     ond = on if isinstance(on, dict) else {}
     if "pull_request_target" in ond: err(f + ": has a pull_request_target trigger")
-    if "pull_request" in ond and not f.endswith(("/ci.yml", "/require-testing-branch.yml", "/fedora-next.yml")):
+    if "pull_request" in ond and not f.endswith(("/ci.yml", "/require-testing-branch.yml")):
         err(f + ": has a pull_request trigger")
     for i, line in enumerate(txt.splitlines(), 1):
         m = re.match(r"\s*-?\s*uses:\s*(\S+)(.*)", line)
