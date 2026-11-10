@@ -14,8 +14,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
 import {
-    CONTEXTS, WHEEL_DOWN, WHEEL_UP, anyRuleUsesButton, debugLine, findRule,
-    isEmulatedScroll, modifiersFromState, newWheelState, pageTarget, parseRules, pointerContext,
+    CONTEXTS, WHEEL_DOWN, WHEEL_UP, actionAvailability, anyRuleUsesButton, debugLine, findRule,
+    isEmulatedScroll, modifiersFromState, newWheelState, pageTarget, parseRules, overviewTransition, pointerContext,
     resolveAction, rulesKey, scrollInput, scrollMeta, wheelConfig, wheelNote, wheelReset, wheelStep,
     workspaceTarget,
 } from './actions.js';
@@ -224,6 +224,14 @@ export default class DesktopMouseNav extends Extension {
             return info;
         }
 
+        // Disabled or out-of-place actions behave as "Do nothing" (never swallow the event).
+        const availability = actionAvailability(info.found.rule.action, context);
+        if (availability !== 'ok') {
+            info.result = 'propagated';
+            info.reason = availability === 'unavailable' ? 'unavailable-in-this-version' : 'not-in-this-context';
+            return info;
+        }
+
         if (input) {
             const step = wheelStep(this._wheel, input, this._wheelConfig);
             this._wheel = step.state;
@@ -236,10 +244,13 @@ export default class DesktopMouseNav extends Extension {
         }
 
         const todo = resolveAction(info.found.rule.action, context);
+        this._fallback = null;
         try {
             info.result = todo.type === 'page'
                 ? this._pageAppGrid(todo.step)
                 : this._runAction(todo.id);
+            if (this._fallback)
+                info.reason = this._fallback;
         } catch (e) {
             info.result = 'propagated';
             info.reason = 'action-threw';
@@ -314,25 +325,59 @@ export default class DesktopMouseNav extends Extension {
         case 'next-workspace':
             return this._switchWorkspace(1);
         case 'toggle-overview':
-            Main.overview.toggle();
-            return 'ran';
         case 'toggle-app-grid':
-            this._toggleAppGrid();
+            this._toggleOverview(action);
             return 'ran';
-        case 'move-window-prev-workspace':
-            return this._moveFocusedWindow(-1);
-        case 'move-window-next-workspace':
-            return this._moveFocusedWindow(1);
+        case 'app-grid-prev-page':
+        case 'app-grid-next-page':
+            // Paged by resolveAction in the app grid only; elsewhere nothing happens.
+            return 'propagated';
+        // Disabled in 0.4.1, returns in 0.5.0 with a window-selection fix (the ids stay
+        // reserved; a saved rule with one of them is stopped in _handlePress):
+        // case 'move-window-prev-workspace':
+        //     return this._moveFocusedWindow(-1);
+        // case 'move-window-next-workspace':
+        //     return this._moveFocusedWindow(1);
         default:
             return 'propagated';
         }
     }
 
-    _toggleAppGrid() {
-        if (Main.overview.visible && this._appGridShowing())
-            Main.overview.hide();
-        else
+    // Overview and app grid toggles switch between the states when the overview is open
+    // (the Shell's own Super+A route: the dash's show-apps button). Every private member is
+    // guarded; a missing one falls back to showApps()/hide() and sets `_fallback` for the
+    // debug line, so a Shell update degrades instead of throwing.
+    _toggleOverview(action) {
+        const visible = Main.overview.visible;
+        const state = !visible ? 'hidden' : this._appGridShowing() ? 'app-grid' : 'window-picker';
+        switch (overviewTransition(action, state)) {
+        case 'show':
+            Main.overview.show();
+            break;
+        case 'show-apps':
             Main.overview.showApps();
+            break;
+        case 'hide':
+            Main.overview.hide();
+            break;
+        case 'grid-on':
+        case 'grid-off': {
+            const wantGrid = overviewTransition(action, state) === 'grid-on';
+            const button = Main.overview.dash?.showAppsButton;
+            if (button && 'checked' in button) {
+                button.checked = wantGrid;
+            } else {
+                this._fallback = 'no-show-apps-button';
+                if (wantGrid)
+                    Main.overview.showApps();
+                else
+                    Main.overview.hide();
+            }
+            break;
+        }
+        default:
+            this._fallback = 'unknown-overview-state';
+        }
     }
 
     // The workspace `step` away from the active one, or null (ends, or one workspace).
@@ -351,16 +396,17 @@ export default class DesktopMouseNav extends Extension {
         return 'ran';
     }
 
-    _moveFocusedWindow(step) {
-        const window = global.display.focus_window;
-        if (!window || window.get_window_type() !== Meta.WindowType.NORMAL ||
-            window.is_on_all_workspaces())
-            return 'propagated';
-        const workspace = this._neighborWorkspace(step);
-        if (!workspace)
-            return 'at-end';
-        window.change_workspace(workspace);
-        workspace.activate_with_focus(window, global.get_current_time());
-        return 'ran';
-    }
+    // Disabled in 0.4.1, returns in 0.5.0 with a window-selection fix:
+    // _moveFocusedWindow(step) {
+    //     const window = global.display.focus_window;
+    //     if (!window || window.get_window_type() !== Meta.WindowType.NORMAL ||
+    //         window.is_on_all_workspaces())
+    //         return 'propagated';
+    //     const workspace = this._neighborWorkspace(step);
+    //     if (!workspace)
+    //         return 'at-end';
+    //     window.change_workspace(workspace);
+    //     workspace.activate_with_focus(window, global.get_current_time());
+    //     return 'ran';
+    // }
 }

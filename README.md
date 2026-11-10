@@ -31,7 +31,7 @@ Open the extension's settings (for example `gnome-extensions prefs desktop-mouse
 
 - **On the empty desktop**: the pointer is over the desktop background (not over a window). If no rule here matches, the rules for the top bar and shell surfaces are tried too.
 - **Top bar and shell surfaces**: the top bar and other parts of the Shell.
-- **Overview** and **App grid**: while they are open, only their own rules apply. A list with no rules does nothing. In the app grid, previous and next workspace turn the pages of the grid instead.
+- **Overview** and **App grid**: while they are open, only their own rules apply. A list with no rules does nothing. Previous and next workspace switch workspaces there too; the app grid list also offers "App grid: previous page" and "App grid: next page" to turn the pages of the grid.
 
 GNOME never passes mouse buttons pressed over application windows to extensions (the Shell maintainers confirmed this on the GNOME Discourse in 2020; I have not re-checked it for Shell 51), so there is nothing to set for windows: applications always keep their buttons.
 
@@ -39,12 +39,14 @@ GNOME never passes mouse buttons pressed over application windows to extensions 
 
 The "Mouse wheel" settings group keeps one burst of scrolling from switching several workspaces: scrolling is added up until it reaches "Scroll needed per action" (default 1 notch, one click of a notched wheel), then the action runs and wheel events are ignored for "Pause between actions" (default 400 ms). Raise the amount for a high-resolution or free-spin wheel.
 
-Actions: previous or next workspace, toggle the overview, toggle the app grid, move the focused window to the previous or next workspace, or do nothing.
+Actions: previous or next workspace, toggle the overview, toggle the app grid, turn the app grid page (app grid list only), or do nothing. When the overview is open, the two toggles switch between the window picker and the app grid instead of doing nothing (toggle the overview closes it from the window picker).
 
 Other settings:
 
 - "Wrap around workspaces" (off by default): Back on the first workspace goes to the last, and Forward on the last goes to the first. Also applies to moving a window.
 - "Log button presses" (Advanced, off by default): for troubleshooting. Writes one line per mouse button press or wheel event to the journal, including presses that were ignored and why; read it with `journalctl --user -b -o cat | grep desktop-mouse-nav`.
+
+Changes in 0.4.1: previous and next workspace switch workspaces again in the app grid (0.4.0 turned the grid's pages with them; the new page actions do that now, and rules you saved keep their action); the dropdown lists show the full action names; the two toggles switch between the overview and the app grid. The "move the focused window to another workspace" actions are disabled for now because they did not work (they are planned to return): a rule that already uses one stays in the list as "Unavailable in this version" and does nothing.
 
 Upgrading from 0.3.0: nothing to do, existing rules keep working.
 
@@ -52,7 +54,7 @@ Upgrading from 0.2.0: the old per-button settings are gone, and the default rule
 
 ## Contributing
 
-Work happens on a branch (`feat/<topic>`, `fix/<topic>`) that goes by pull request into `testing`, and a pull request promotes `testing` to `main`. Maintainer notes are in `CLAUDE.md`. Run `just test` first; a weekly check also tries the extension against the next Fedora release and only warns. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.4.0`).
+Work happens on a branch (`feat/<topic>`, `fix/<topic>`) that goes by pull request into `testing`, and a pull request promotes `testing` to `main`. Maintainer notes are in `CLAUDE.md`. Run `just test` first; a weekly check (Mondays) tries the latest release against the next Fedora release and only warns. A new release needs a new `version-name` in `metadata.json` (digits and periods, for example `0.4.1`).
 
 ## License
 

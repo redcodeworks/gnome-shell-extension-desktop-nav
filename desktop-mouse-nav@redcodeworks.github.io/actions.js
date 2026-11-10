@@ -16,18 +16,57 @@ export function rulesKey(context) {
     return `rules-${context}`;
 }
 
-// [id, label shown in the preferences window]
+// [id, label shown in the preferences window]. Labels are short on purpose (long ones were
+// cut off in the dropdowns).
 export const ACTIONS = [
     ['none', 'Do nothing'],
     ['prev-workspace', 'Previous workspace'],
     ['next-workspace', 'Next workspace'],
     ['toggle-overview', 'Toggle the overview'],
     ['toggle-app-grid', 'Toggle the app grid'],
-    ['move-window-prev-workspace', 'Move the focused window to the previous workspace'],
-    ['move-window-next-workspace', 'Move the focused window to the next workspace'],
+    ['app-grid-prev-page', 'App grid: previous page'],
+    ['app-grid-next-page', 'App grid: next page'],
 ];
 
-export const ACTION_IDS = ACTIONS.map(([id]) => id);
+// Offered only in the app grid context (they do nothing in other contexts).
+export const APP_GRID_ONLY_ACTIONS = ['app-grid-prev-page', 'app-grid-next-page'];
+
+// Ids that exist in saved settings but are disabled in this version: they stay reserved
+// (never reuse them), a saved rule keeps them, behaves as "Do nothing" and shows as
+// "Unavailable in this version". Disabled in 0.4.1, they return in 0.5.0 with a
+// window-selection fix.
+export const RESERVED_ACTIONS = ['move-window-prev-workspace', 'move-window-next-workspace'];
+
+export const ACTION_IDS = [...ACTIONS.map(([id]) => id), ...RESERVED_ACTIONS];
+
+// The actions the editor offers in a context (page actions only in the app grid).
+export function actionsForContext(context) {
+    return ACTIONS.filter(([id]) => context === 'app-grid' || !APP_GRID_ONLY_ACTIONS.includes(id));
+}
+
+// 'ok', 'unavailable' (reserved id) or 'not-here' (an app grid page action outside the app
+// grid, only possible through hand-edited settings) for an action in a context.
+export function actionAvailability(action, context) {
+    if (RESERVED_ACTIONS.includes(action))
+        return 'unavailable';
+    if (APP_GRID_ONLY_ACTIONS.includes(action) && context !== 'app-grid')
+        return 'not-here';
+    return 'ok';
+}
+
+// What the Shell should do for toggle-overview / toggle-app-grid in the current overview
+// state ('hidden', 'window-picker' or 'app-grid'): 'show' (open the overview), 'show-apps'
+// (open it on the app grid), 'hide', 'grid-on' (switch an open overview to the app grid)
+// or 'grid-off' (switch it back to the window picker). Null for an unknown input.
+export function overviewTransition(action, state) {
+    if (action === 'toggle-overview') {
+        return {hidden: 'show', 'window-picker': 'hide', 'app-grid': 'grid-off'}[state] ?? null;
+    }
+    if (action === 'toggle-app-grid') {
+        return {hidden: 'show-apps', 'window-picker': 'grid-on', 'app-grid': 'grid-off'}[state] ?? null;
+    }
+    return null;
+}
 
 // A rule is {input, mods, action}. The input is {kind: 'button', button: N} (X11-style
 // button number) or, for the mouse wheel, {kind: 'wheel', direction, button: N} with the
@@ -305,13 +344,14 @@ export function pointerContext({overviewVisible, appGridShowing, onEmptyDesktop}
     return onEmptyDesktop ? 'desktop' : 'shell';
 }
 
-// What an action does in a context: while the app grid shows, previous/next workspace
-// page the grid (step -1/+1); everything else runs as bound.
+// What an action does in a context: the app grid page actions page the grid (step -1/+1)
+// there; everything else runs as bound. Previous/next workspace always switch workspaces
+// (0.4.0 paged the grid with them in the app grid; 0.4.1 restored the switching).
 export function resolveAction(action, context) {
     if (context === 'app-grid') {
-        if (action === 'prev-workspace')
+        if (action === 'app-grid-prev-page')
             return {type: 'page', step: -1};
-        if (action === 'next-workspace')
+        if (action === 'app-grid-next-page')
             return {type: 'page', step: 1};
     }
     return {type: 'action', id: action};
