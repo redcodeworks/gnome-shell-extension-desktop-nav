@@ -68,8 +68,8 @@ PY
 # the workflows that carry the required checks (and promotion) stay as they were; update these
 # sums on purpose when one of them is changed
 declare -A sums=(
-    [ci.yml]=91e54c398f0551b8593a81b1bbe8c7deead2cb5bbb6f9936231b839a9dbb5b57
-    [promote.yml]=fafaa783bfa647406619ac92e28ac16e25a6dc18386e585d57524c09f26afcc4
+    [ci.yml]=a94ea2e353adb1adcf5a0745ba8005be97470aec0ff6052073cf5ed919cf49e8
+    [promote.yml]=906907a04ac7a9e54a1b34dcc6ee94f8cca820825a950abda19791c99eb12114
     [require-testing-branch.yml]=efc25cf8404e56c1e0d561454984cd47ab178f69fa5ae6a8331812abe3d2b29f
 )
 for f in "${!sums[@]}"; do
@@ -98,11 +98,14 @@ cat > "$tmp/gh" <<'STUB'
 #!/usr/bin/env bash
 # usage: gh release view --json tagName --jq .tagName ; TAG = printed tag, GHFAIL=1 = no release
 [ -n "${GHFAIL:-}" ] && { echo "release not found" >&2; exit 1; }
+echo "gh $*" >> "$LOG"
 echo "$TAG"
 STUB
 chmod +x "$tmp/gh"
+LOG=$tmp/gh.log; export LOG
 rel() { : > "$tmp/gh.out"; : > "$tmp/sum3.md"
-    env -i PATH="$PATH" GH="$tmp/gh" GITHUB_OUTPUT="$tmp/gh.out" GITHUB_STEP_SUMMARY="$tmp/sum3.md" "$@" "$root/scripts/fedora-next-release.sh"; }
+    env -i PATH="$PATH" LOG="$LOG" GH="$tmp/gh" GITHUB_OUTPUT="$tmp/gh.out" GITHUB_STEP_SUMMARY="$tmp/sum3.md" "$@" "$root/scripts/fedora-next-release.sh"; }
+: > "$tmp/gh.log"
 expect_rc 0 "release: latest release found" rel TAG=v0.4.1
 grep -qx tag=v0.4.1 "$tmp/gh.out" && grep -qx version=0.4.1 "$tmp/gh.out" && pass "release: tag and version output" || fail "release: tag and version output"
 grep -q 'v0.4.1' "$tmp/sum3.md" && pass "release: summary names the release" || fail "release: summary names the release"
@@ -110,6 +113,13 @@ expect_rc 1 "release: no release yet fails" rel GHFAIL=1
 expect_out 'no published release found' "release: clear message"
 expect_rc 1 "release: empty answer fails" rel TAG=
 expect_rc 1 "release: odd tag fails" rel 'TAG=testing'
+# prereleases (the rolling testing build, its -rc names) must never be picked: the lookup is
+# `gh release view` WITHOUT a tag, which GitHub answers with the Latest non-prerelease, and a
+# tag that is not v<digits>... is refused even if some lookup returned one
+: > "$tmp/gh.log"; LOG=$tmp/gh.log rel TAG=v0.4.1 >/dev/null 2>&1
+[ "$(cat "$tmp/gh.log")" = "gh release view --json tagName --jq .tagName" ] && pass "release: asks for the latest release, not a named tag" || fail "release: lookup arguments ($(cat "$tmp/gh.log"))"
+expect_rc 1 "release: an rc tag name is refused" rel LOG=$tmp/gh.log 'TAG=v0.6.0-rc2'
+expect_rc 1 "release: the testing build title is refused" rel LOG=$tmp/gh.log 'TAG=testing (0.6.0-rc2, 0f65598)'
 [ ! -s "$tmp/gh.out" ] && pass "release: nothing written on failure" || fail "release: nothing written on failure"
 
 # plan script with a stub skopeo

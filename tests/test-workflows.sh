@@ -82,6 +82,16 @@ else:
     if "release delete testing" not in run or "--cleanup-tag" not in run: err("publish-testing must replace the old testing release")
     if re.search(r"release (create|delete) v", run) or re.search(r"v\$", run): err("publish-testing must not touch a v* tag")
     if "docker build" in run or "gnome-extensions pack" in run or "just pack" in run: err("publish-testing must not rebuild")
+# release candidate stamp: full history (tags) for the count, stamped before the manifest and the upload
+ts = ci["jobs"]["test"]["steps"]
+names = [st.get("name", "") for st in ts]
+co = [st for st in ts if "checkout" in str(st.get("uses", ""))]
+if not co or str((co[0].get("with") or {}).get("fetch-depth")) != "0": err("ci.yml test job must check out with fetch-depth 0 (rc number needs the tags)")
+si = [i for i, st in enumerate(ts) if "scripts/stamp-rc.sh" in st.get("run", "")]
+mi = [i for i, st in enumerate(ts) if "scripts/make-manifest.sh" in st.get("run", "")]
+ui = [i for i, st in enumerate(ts) if "upload-artifact" in str(st.get("uses", ""))]
+if not si or not mi or not ui or not (si[0] < mi[0] < ui[0]): err("ci.yml: stamp-rc.sh must run before make-manifest.sh and the upload")
+if "git commit" in str(ci) or "git push" in str(ci): err("ci.yml must never commit the rc stamp")
 for jn in ("test", "secrets"):
     if (ci["jobs"][jn].get("permissions") or {}).get("contents") == "write": err("ci.yml job " + jn + " must stay read-only")
 if (ci.get("permissions") or {}) != {"contents": "read"}: err("ci.yml top-level permissions must stay contents: read")
