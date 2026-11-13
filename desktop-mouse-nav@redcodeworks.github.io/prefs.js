@@ -14,7 +14,7 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 import {
     ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS, WHEEL_DOWN, WHEEL_LEFT, WHEEL_RIGHT,
     WHEEL_SETTINGS, WHEEL_UP, WORKSPACE_SWITCHES, actionAvailability, actionsForContext, buttonName, findDuplicate, isWheelButton,
-    makeRule, modifiersFromState, parseRules, rulesKey, serializeRules, unbindableReason,
+    makeRule, modifierTooltip, modifiersFromState, parseRules, rulesKey, serializeRules, unbindableReason,
 } from './actions.js';
 
 const CONTEXT_TEXT = {
@@ -46,6 +46,8 @@ const UNAVAILABLE_NOTE = 'Unavailable in this version';
 const NOT_HERE_NOTE = 'Not available in this list';
 const MODIFIER_IDS = MODIFIER_COMBOS.map(([mods]) => mods);
 const MODIFIER_LABELS = MODIFIER_COMBOS.map(([, label]) => label);
+// Tooltips per entry: the spelled-out combination for aliases (MEH, HYPER), '' otherwise.
+const MODIFIER_TIPS = MODIFIER_IDS.map(modifierTooltip);
 
 function stringList(labels) {
     return Gtk.StringList.new(labels);
@@ -54,7 +56,7 @@ function stringList(labels) {
 // Popup list items that show the whole text (libadwaita's default items are cut off at 20
 // characters) with a check mark on the selected one. `widget` is the Adw.ComboRow or
 // Gtk.DropDown; any failure leaves the default items in place.
-function showFullLabels(widget) {
+function showFullLabels(widget, tips = null) {
     try {
         const factory = new Gtk.SignalListItemFactory();
         const handlers = new Map();
@@ -71,6 +73,7 @@ function showFullLabels(widget) {
             const label = box.get_first_child();
             const check = box.get_last_child();
             label.label = listItem.get_item()?.string ?? '';
+            label.tooltip_text = tips?.[listItem.position] || null;
             const update = () => {
                 check.opacity = widget.selected_item === listItem.get_item() ? 1 : 0;
             };
@@ -99,8 +102,10 @@ function writeRules(settings, context, rules) {
     settings.set_value(rulesKey(context), new GLib.Variant('a(uss)', serializeRules(rules)));
 }
 
-// Fixed widths (pixels) of the two dropdowns in a rule row.
-const MODIFIER_DROP_WIDTH = 190;
+// Fixed widths (pixels) of the two dropdowns in a rule row. The modifier width is
+// 9.5 px per character of the longest label ('Ctrl+Shift+Super', 16) rounded up; the
+// earlier 190 was the same 9.5 px for the 20-character 'Alt+Ctrl+Shift+Super'.
+const MODIFIER_DROP_WIDTH = 160;
 const ACTION_DROP_WIDTH = 240;
 
 const NO_MODIFIER_NOTE = 'No modifier: plain scrolling triggers this rule.';
@@ -130,7 +135,12 @@ function showRuleDialog(window, context, existingRules, onAdd) {
     const buttonRow = new Adw.ActionRow({title: 'Button'});
     const modifierRow = new Adw.ComboRow({title: 'Modifier', model: stringList(MODIFIER_LABELS)});
     const actionRow = new Adw.ComboRow({title: 'Action', model: stringList(choices.labels)});
-    showFullLabels(modifierRow);
+    showFullLabels(modifierRow, MODIFIER_TIPS);
+    const updateRowTip = () => {
+        modifierRow.tooltip_text = MODIFIER_TIPS[modifierRow.selected] || null;
+    };
+    updateRowTip();
+    modifierRow.connect('notify::selected', updateRowTip);
     showFullLabels(actionRow);
     // Wheel rules need a modifier by default so normal scrolling is never taken over.
     const requireRow = new Adw.SwitchRow({
@@ -413,7 +423,12 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
             width_request: ACTION_DROP_WIDTH,
             selected: Math.max(0, choices.ids.indexOf(rule.action)),
         });
-        showFullLabels(modifierDrop);
+        showFullLabels(modifierDrop, MODIFIER_TIPS);
+        const updateModifierTip = () => {
+            modifierDrop.tooltip_text = MODIFIER_TIPS[modifierDrop.selected] || null;
+        };
+        updateModifierTip();
+        modifierDrop.connect('notify::selected', updateModifierTip);
         showFullLabels(actionDrop);
         let reverting = false;
         modifierDrop.connect('notify::selected', () => {

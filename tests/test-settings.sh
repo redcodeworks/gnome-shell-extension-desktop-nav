@@ -48,6 +48,14 @@ const out = {
   wheelLimits: a.WHEEL_SETTINGS.map(([k, , , lo, hi]) => [k, lo, hi]),
   norm: ['', 'Shift+ctrl', 'super+alt+ctrl+shift', 'ctrl+ctrl', ' Ctrl + Shift ', 'hyper', 'ctrl+meta', 5, null].map(x => a.normalizeModifiers(x)),
   combos: a.MODIFIER_COMBOS.length, combo0: a.MODIFIER_COMBOS[0], comboUnique: new Set(a.MODIFIER_COMBOS.map(c => c[0])).size,
+  labels: ['', 'alt', 'ctrl+shift', 'alt+ctrl+shift', 'ctrl+shift+alt', 'Shift+Ctrl+Alt', ' shift + alt+ctrl ', 'alt+ctrl+shift+super', 'super+shift+ctrl+alt', 'ctrl+shift+super', 'bogus'].map(x => a.modifierLabel(x)),
+  fulls: ['alt+ctrl+shift', 'alt+ctrl+shift+super', 'ctrl'].map(x => a.modifierFullLabel(x)),
+  tips: ['alt+ctrl+shift', 'Ctrl+Shift+Alt', 'alt+ctrl+shift+super', 'ctrl', ''].map(x => a.modifierTooltip(x)),
+  aliases: a.MODIFIER_ALIASES,
+  comboLabels: a.MODIFIER_COMBOS.map(c => c[1]),
+  comboMehHyper: [a.MODIFIER_COMBOS.find(c => c[0] === 'alt+ctrl+shift'), a.MODIFIER_COMBOS.find(c => c[0] === 'alt+ctrl+shift+super')],
+  mehRoundTrip: a.serializeRules(a.parseRules([[8, 'Shift+Ctrl+Alt', 'next-workspace'], [9, 'super+alt+shift+ctrl', 'prev-workspace']])),
+  mehRowModel: a.parseRules([[8, 'ctrl+shift+alt', 'next-workspace']]).map(r => [r.mods, a.modifierLabel(r.mods)]),
   comboAllNormal: a.MODIFIER_COMBOS.every(([m]) => a.normalizeModifiers(m) === m),
   fromState: [0, 1, 4, 8, 1 << 26, 1 | 4, 1 | 2, 4 | 16, 4 | 256, 4 | 1024, MOD4, SUPER | MOD4, 4 | MOD4, 4 | SUPER, 4 | SUPER | MOD4 | 2 | 16, 1 | 2 | 8 | MOD4].map(s => a.modifiersFromState(s, M, true)),
   fromStateOther: [HYPER, META, MOD3, MOD5, 4 | HYPER, 4 | META, MOD4 | HYPER].map(s => a.modifiersFromState(s, M, true)),
@@ -275,6 +283,15 @@ eq '.norm|map(tostring)|join("|")' "|ctrl+shift|alt+ctrl+shift+super|ctrl|ctrl+s
 eq '.combos' 16 "16 modifier combinations"
 eq '.comboUnique' 16 "all combinations differ"
 eq '.combo0|join("/")' "/None" "None comes first"
+eq '.labels|join("|")' "None|Alt|Ctrl+Shift|MEH|MEH|MEH|MEH|HYPER|HYPER|Ctrl+Shift+Super|bogus" "modifier labels: MEH and HYPER for the two combinations in any spelling or order, the rest spelled out"
+eq '.fulls|join("|")' "Alt+Ctrl+Shift|Alt+Ctrl+Shift+Super|Ctrl" "the full labels stay spelled out"
+eq '.tips|join("|")' "Alt+Ctrl+Shift|Alt+Ctrl+Shift|Alt+Ctrl+Shift+Super||" "the tooltip spells out an alias (any spelling), nothing for other values"
+eq '.aliases|keys|join(",")' "alt+ctrl+shift,alt+ctrl+shift+super" "the alias table has exactly MEH and HYPER (value to display name)"
+eq '.comboMehHyper|map(join("="))|join("|")' "alt+ctrl+shift=MEH|alt+ctrl+shift+super=HYPER" "dropdown entries keep the saved value and show the alias"
+eq '.comboLabels|any(. == "Alt+Ctrl+Shift" or . == "Alt+Ctrl+Shift+Super")' false "no dropdown entry shows the long spelling"
+eq '.comboLabels|map(length)|max' 16 "the longest dropdown label is 16 characters (Ctrl+Shift+Super)"
+eq '.mehRoundTrip|map(.[1])|join("|")' "alt+ctrl+shift|alt+ctrl+shift+super" "saved rules keep the stored modifier strings (labels are never written back)"
+eq '.mehRowModel|map(join("="))|join("|")' "alt+ctrl+shift=MEH" "a rule row model shows MEH for the stored string"
 eq '.comboAllNormal' true "every combination is a normalized string"
 eq '.fromState|map(tostring)|join("|")' "|shift|ctrl|alt|super|ctrl+shift|shift|ctrl|ctrl|ctrl|super|super|ctrl+super|ctrl+super|ctrl+super|alt+shift+super" "state to modifiers: lock, num lock and button bits are ignored; Super is SUPER_MASK or MOD4_MASK or both"
 eq '.superMatch|map(tostring)|join(" ")' "0 0 0 0 0 -1 -1 -1 -1 -1 -1" "a Super rule matches with SUPER_MASK only, MOD4_MASK only or both (lock bits ignored), not without or with extra modifiers"
@@ -424,6 +441,8 @@ grep -qE "gi://(Clutter|Meta|St|Shell)|resource:///org/gnome/shell/" "$ext/prefs
 grep -q "recursiveUnpack" "$ext/prefs.js" && grep -q "set_value" "$ext/prefs.js" && grep -q "'a(uss)'" "$ext/prefs.js" && pass "prefs.js reads with recursiveUnpack and writes set_value with a(uss)" || fail "prefs.js does not read/write a(uss) as designed"
 grep -q "get_current_button" "$ext/prefs.js" && grep -q "get_current_event_state" "$ext/prefs.js" && grep -q "PropagationPhase.CAPTURE" "$ext/prefs.js" && pass "prefs.js detects the button in a capture-phase click gesture" || fail "detection gesture missing"
 grep -q "add_prefix(modifierDrop)" "$ext/prefs.js" && ! grep -q "add_suffix(modifierDrop)" "$ext/prefs.js" && grep -q "width_request: MODIFIER_DROP_WIDTH" "$ext/prefs.js" && grep -q "width_request: ACTION_DROP_WIDTH" "$ext/prefs.js" && pass "rule rows: fixed-width modifier dropdown left of the button name, action dropdown right" || fail "rule row layout (modifier prefix, fixed widths) missing"
+grep -q "MODIFIER_DROP_WIDTH = 160;" "$ext/prefs.js" && grep -q "ACTION_DROP_WIDTH = 240;" "$ext/prefs.js" && pass "modifier dropdown width 160, action dropdown width 240" || fail "dropdown width constants changed"
+grep -q "modifierTooltip" "$ext/prefs.js" && grep -q "tooltip_text" "$ext/prefs.js" && ! grep -qE "set_(value|string)\([^)]*MODIFIER_LABELS" "$ext/prefs.js" && pass "prefs.js shows tooltips with the full combination and writes only MODIFIER_IDS" || fail "tooltip or write-back check"
 grep -q "Adw.ButtonRow" "$ext/prefs.js" && grep -q "list-add-symbolic" "$ext/prefs.js" && grep -q "user-trash-symbolic" "$ext/prefs.js" && pass "prefs.js has the add row and the delete button" || fail "add row or delete button missing"
 
 # extension.js handles every action id; prefs.js takes the ids only from actions.js
