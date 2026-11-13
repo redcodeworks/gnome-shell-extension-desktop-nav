@@ -48,7 +48,7 @@ const out = {
   wheelLimits: a.WHEEL_SETTINGS.map(([k, , , lo, hi]) => [k, lo, hi]),
   norm: ['', 'Shift+ctrl', 'super+alt+ctrl+shift', 'ctrl+ctrl', ' Ctrl + Shift ', 'hyper', 'ctrl+meta', 5, null].map(x => a.normalizeModifiers(x)),
   combos: a.MODIFIER_COMBOS.length, combo0: a.MODIFIER_COMBOS[0], comboUnique: new Set(a.MODIFIER_COMBOS.map(c => c[0])).size,
-  labels: ['', 'alt', 'ctrl+shift', 'alt+ctrl+shift', 'ctrl+shift+alt', 'Shift+Ctrl+Alt', ' shift + alt+ctrl ', 'alt+ctrl+shift+super', 'super+shift+ctrl+alt', 'ctrl+shift+super', 'bogus'].map(x => a.modifierLabel(x)),
+  modLabels: ['', 'alt', 'ctrl+shift', 'alt+ctrl+shift', 'ctrl+shift+alt', 'Shift+Ctrl+Alt', ' shift + alt+ctrl ', 'alt+ctrl+shift+super', 'super+shift+ctrl+alt', 'ctrl+shift+super', 'bogus'].map(x => a.modifierLabel(x)),
   fulls: ['alt+ctrl+shift', 'alt+ctrl+shift+super', 'ctrl'].map(x => a.modifierFullLabel(x)),
   tips: ['alt+ctrl+shift', 'Ctrl+Shift+Alt', 'alt+ctrl+shift+super', 'ctrl', ''].map(x => a.modifierTooltip(x)),
   aliases: a.MODIFIER_ALIASES,
@@ -283,7 +283,7 @@ eq '.norm|map(tostring)|join("|")' "|ctrl+shift|alt+ctrl+shift+super|ctrl|ctrl+s
 eq '.combos' 16 "16 modifier combinations"
 eq '.comboUnique' 16 "all combinations differ"
 eq '.combo0|join("/")' "/None" "None comes first"
-eq '.labels|join("|")' "None|Alt|Ctrl+Shift|MEH|MEH|MEH|MEH|HYPER|HYPER|Ctrl+Shift+Super|bogus" "modifier labels: MEH and HYPER for the two combinations in any spelling or order, the rest spelled out"
+eq '.modLabels|join("|")' "None|Alt|Ctrl+Shift|MEH|MEH|MEH|MEH|HYPER|HYPER|Ctrl+Shift+Super|bogus" "modifier labels: MEH and HYPER for the two combinations in any spelling or order, the rest spelled out"
 eq '.fulls|join("|")' "Alt+Ctrl+Shift|Alt+Ctrl+Shift+Super|Ctrl" "the full labels stay spelled out"
 eq '.tips|join("|")' "Alt+Ctrl+Shift|Alt+Ctrl+Shift|Alt+Ctrl+Shift+Super||" "the tooltip spells out an alias (any spelling), nothing for other values"
 eq '.aliases|keys|join(",")' "alt+ctrl+shift,alt+ctrl+shift+super" "the alias table has exactly MEH and HYPER (value to display name)"
