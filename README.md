@@ -12,7 +12,7 @@ A GNOME Shell extension: choose what your extra mouse buttons and the mouse whee
 Pick one:
 
 - `just install`: the latest release (no build tools needed). `just install 0.1.1` installs a specific release. It verifies the checksum first, says "already installed" when nothing would change, and `--dry-run` shows what it would do.
-- `just install --testing`: the latest testing build, a rolling prerelease that is replaced on every push to the `testing` branch once its checks pass. Meant for trying changes before they are released.
+- `just install --testing`: the latest testing build, a rolling prerelease that is replaced on every push to the `testing` branch once its checks pass. Meant for trying changes before they are released. Its version reads like `0.6.1.rc3`: the coming release plus a release candidate number that counts the changes merged since the last release. The release itself carries the plain `0.6.1`.
 - `just install-local`: builds the zip from your working tree and unpacks it (needs `gnome-extensions`).
 
 You can also download the zip from the Releases page and unpack it into `~/.local/share/gnome-shell/extensions/desktop-mouse-nav@redcodeworks.github.io/`, then run `glib-compile-schemas schemas/` inside that directory. All unpack routes need `glib-compile-schemas` for the settings schema (Fedora package `glib2-devel`).
@@ -36,7 +36,7 @@ By default, with no window under the pointer, Back goes to the previous workspac
 
 Plain scrolling is never taken over, because every wheel rule needs Alt. All of this can be edited or deleted in the settings.
 
-Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app). Each group is a list of rules: a mouse button, an optional modifier (Ctrl, Shift, Alt, Super or a combination) and an action. The first matching rule wins, and a rule only matches when exactly its modifiers are held.
+Open the extension's settings (for example `gnome-extensions prefs desktop-mouse-nav@redcodeworks.github.io`, or the Extensions app). Each group is a list of rules: a mouse button, an optional modifier (Ctrl, Shift, Alt, Super or a combination; MEH is Alt+Ctrl+Shift and HYPER is MEH plus Super, and hovering over the modifier dropdown shows the full combination) and an action. The first matching rule wins, and a rule only matches when exactly its modifiers are held.
 
 **Add a rule:** choose "Add rule" at the end of a list, then click the mouse button you want to use. The button is detected, and any modifier keys you hold are pre-filled. Pick the modifier and the action, then choose Add. You can change the modifier or the action later in the list, or delete a rule with the trash button. The primary and secondary buttons cannot be used, the middle button only together with a modifier, and the same button and modifier cannot be bound twice in one list.
 
@@ -62,6 +62,8 @@ Other settings:
 
 - "Wrap around workspaces" (off by default): Back on the first workspace goes to the last, and Forward on the last goes to the first. Also applies to moving a window.
 - "Log button presses" (Advanced, off by default): for troubleshooting. Writes one line per mouse button press or wheel event to the journal, including presses that were ignored and why; read it with `journalctl --user -b -o cat | grep desktop-mouse-nav`.
+
+Changes in 0.6.1: in the rule lists the modifier dropdown now sits to the left of the button name, and both dropdowns have a fixed width so rows no longer jump when you change a selection; the dropdown is narrower because Alt+Ctrl+Shift is now shown as MEH and Alt+Ctrl+Shift+Super as HYPER (saved rules are unchanged). Written without a live GNOME session.
 
 Changes in 0.6.0: the Alt + wheel default rules above (up and down step in and out, left and right switch workspaces or turn app grid pages). Written without a live GNOME session.
 

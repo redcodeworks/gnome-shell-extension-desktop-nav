@@ -144,20 +144,44 @@ export function normalizeModifiers(text) {
     return MODIFIER_PARTS.filter(part => parts.has(part)).join('+');
 }
 
-// All 16 combinations, 'none' first, then fewer modifiers before more:
-// [modifier string, label].
-export const MODIFIER_COMBOS = Array.from({length: 16}, (_, bits) => {
-    const parts = MODIFIER_PARTS.filter((_part, i) => bits & (1 << i));
-    return {bits, count: parts.length, mods: parts.join('+'),
-        label: parts.length ? parts.map(modifierPartLabel).join('+') : 'None'};
-}).sort((x, y) => x.count - y.count || x.bits - y.bits).map(c => [c.mods, c.label]);
+// Display names for well-known combinations: normalized modifier string -> name.
+// DISPLAY ONLY: saved values, the schema and the matching never see these names, and
+// a name is never written back to the settings. Add an alias by adding a line here.
+export const MODIFIER_ALIASES = {
+    'alt+ctrl+shift': 'MEH',
+    'alt+ctrl+shift+super': 'HYPER',
+};
 
+// What the dropdowns and rows show for a modifier string (alias, or the joined parts).
 export function modifierLabel(mods) {
+    const normalized = normalizeModifiers(mods);
+    if (normalized === null)
+        return String(mods);
+    if (normalized === '')
+        return 'None';
+    return MODIFIER_ALIASES[normalized] ?? modifierFullLabel(normalized);
+}
+
+// The spelled-out combination ('Alt+Ctrl+Shift'), also for aliased ones.
+export function modifierFullLabel(mods) {
     const normalized = normalizeModifiers(mods);
     if (normalized === null)
         return String(mods);
     return normalized === '' ? 'None' : normalized.split('+').map(modifierPartLabel).join('+');
 }
+
+// Tooltip text: the spelled-out combination for an alias, '' for everything else.
+export function modifierTooltip(mods) {
+    const normalized = normalizeModifiers(mods);
+    return normalized !== null && normalized in MODIFIER_ALIASES ? modifierFullLabel(normalized) : '';
+}
+
+// All 16 combinations, 'none' first, then fewer modifiers before more:
+// [modifier string, display label].
+export const MODIFIER_COMBOS = Array.from({length: 16}, (_, bits) => {
+    const parts = MODIFIER_PARTS.filter((_part, i) => bits & (1 << i));
+    return {bits, count: parts.length, mods: parts.join('+')};
+}).sort((x, y) => x.count - y.count || x.bits - y.bits).map(c => [c.mods, modifierLabel(c.mods)]);
 
 // Modifier bits of a GDK/GTK event state in the preferences process (no Gdk import
 // there; these are the GDK 4 ModifierType values: SHIFT 1, CONTROL 4, ALT 8, SUPER 1<<26).
@@ -451,7 +475,9 @@ export function debugLine(enabled, button, state, mods, context, found, result, 
     const rule = found ? `${found.context}[${found.index}]` : 'none';
     const action = found ? found.rule.action : 'none';
     const note = (reason ? ` reason=${reason}` : '') + (extra ? ` ${extra}` : '');
-    return `desktop-mouse-nav: button=${inputLabel(button)} state=${hexState(state)} mods=${mods === null ? 'other' : mods || 'none'} context=${context} match=${found ? 'yes' : 'no'} rule=${rule} action=${action} result=${result}${note}`;
+    const modsText = mods === null ? 'other' : mods || 'none';
+    return `desktop-mouse-nav: button=${inputLabel(button)} state=${hexState(state)} mods=${modsText} `
+        + `context=${context} match=${found ? 'yes' : 'no'} rule=${rule} action=${action} result=${result}${note}`;
 }
 
 // Target workspace index for a step (-1/+1) from the active one, or null (do nothing,

@@ -33,6 +33,8 @@ jobs:
       - name: Install tools
         run: dnf install -y --setopt=install_weak_deps=False git nodejs gnome-shell just unzip zip jq glib2-devel python3-pyyaml
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the release candidate number counts commits since the last release tag
       - name: Let git read the workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Lint, install test, script tests
@@ -47,6 +49,17 @@ jobs:
           fi
       - name: Pack
         run: just pack
+      - name: Stamp the release candidate number into the zip
+        id: rc
+        run: scripts/stamp-rc.sh "$EXT" "dist/$EXT.shell-extension.zip"
+      - name: EGO pre-flight on the stamped zip
+        # The stamped version-name (<target>.rc<N>) is a valid EGO version-name, so the
+        # same checks that guard an upload run on every testing build and PR run.
+        run: |
+          rc=0
+          scripts/ego-preflight.sh "dist/$EXT.shell-extension.zip" --repo-url "https://github.com/$GITHUB_REPOSITORY" --license-dir . --report dist/preflight.md || rc=$?
+          cat dist/preflight.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
       - name: Write the manifest
         id: manifest
         run: |
@@ -81,6 +94,57 @@ jobs:
         run: |
           "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner .
 
+  # Report only, NOT a required check (the required names stay test, secrets and
+  # require-testing-branch): Shexli is the extensions.gnome.org review team's static
+  # analyzer, run on the packed and stamped zip. Findings become a warning annotation and a
+  # job summary section; the job never fails because of them.
+  shexli:
+    runs-on: ubuntu-26.04
+    container: fedora:45
+    steps:
+      - name: Install tools
+        run: dnf install -y --setopt=install_weak_deps=False git just gnome-shell unzip zip jq tar gzip curl glib2-devel
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the stamp counts commits since the last release tag
+      - name: Let git read the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Pack and stamp
+        run: |
+          just pack
+          scripts/stamp-rc.sh "$EXT" "dist/$EXT.shell-extension.zip"
+      - name: Shexli (report only)
+        continue-on-error: true
+        run: |
+          v=0.13.7
+          f=uv-x86_64-unknown-linux-musl.tar.gz
+          curl --fail --silent --show-error --location --retry 5 --retry-delay 5 --retry-all-errors -o "$RUNNER_TEMP/$f" "https://github.com/astral-sh/uv/releases/download/$v/$f"
+          echo "287491da03f2a785c70fa75b13e1f849918c2f2b5415fe84876b8214eeb792f9  $RUNNER_TEMP/$f" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/uv" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/uv" --strip-components=1
+          uv="$RUNNER_TEMP/uv/uv"
+          "$uv" venv --python 3.12 "$RUNNER_TEMP/shexli-venv"
+          # tree-sitter is pinned: a 0.26.0 wheel is reported to segfault on some files under Python 3.13 and 3.14
+          "$uv" pip install --python "$RUNNER_TEMP/shexli-venv/bin/python" shexli==0.2.1 tree-sitter==0.25.2
+          zip="dist/$EXT.shell-extension.zip"
+          rc=0
+          "$RUNNER_TEMP/shexli-venv/bin/shexli" --format json "$zip" > "$RUNNER_TEMP/shexli.json" 2> "$RUNNER_TEMP/shexli.err" || rc=$?
+          "$RUNNER_TEMP/shexli-venv/bin/shexli" --format text "$zip" > "$RUNNER_TEMP/shexli.txt" 2>&1 || true
+          {
+            echo "## Shexli 0.2.1 on the stamped zip (report only; exit code $rc)"
+            echo
+            echo "Shexli is the review team's static analyzer. It is not authoritative and its findings do not fail this job."
+            echo
+            echo '~~~~text'
+            cat "$RUNNER_TEMP/shexli.txt" "$RUNNER_TEMP/shexli.err"
+            echo '~~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+          n=$(jq -r '.summary.finding_count // 0' "$RUNNER_TEMP/shexli.json" 2>/dev/null || echo 0)
+          if [ "${n:-0}" -gt 0 ]; then
+            ids=$(jq -r '[.findings[].rule_id] | join(", ")' "$RUNNER_TEMP/shexli.json")
+            echo "::warning title=Shexli reported $n finding(s)::$ids (report only, see the job summary)"
+          fi
+          exit 0
+
   publish-testing:
     needs: [test, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
@@ -106,7 +170,8 @@ jobs:
           version=$(jq -r '.["version-name"]' "$RUNNER_TEMP/art/manifest.json")
           short=${GITHUB_SHA::7}
           notes="Rolling testing build for UAT (user acceptance testing), not a release: it has not been tried by users. Each push to the testing branch replaces it.
-          Commit $GITHUB_SHA, tree $TREE, version-name $version, zip sha256 $sum.
+          Release candidate: version-name $version is the target version plus .rc<N>, N = changes merged into testing since the last release. The clean version-name is released on promotion.
+          Commit $GITHUB_SHA, tree $TREE, zip sha256 $sum.
           Built once by https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID after test and secrets passed.
           Install: just install --testing"
           if gh release view testing -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
