@@ -57,7 +57,7 @@ ext=$r/$uuid
 mkdir -p "$tmp/pk"; cp "$ext"/* "$tmp/pk/"; echo "// x" > "$tmp/pk/actions.js"; make_zip "$tmp/pk" "$tmp/z.zip"
 clean_before=$(sha256sum "$ext/metadata.json" | cut -d' ' -f1)
 ( cd "$r" && GITHUB_OUTPUT=$tmp/o "$root/scripts/stamp-rc.sh" "$uuid" "$tmp/z.zip" ) > "$tmp/last.out" 2>&1 && pass "stamp runs" || { fail "stamp runs"; cat "$tmp/last.out" >&2; }
-want=$(rc); want="0.2.1-rc$want"
+want=$(rc); want="0.2.1.rc$want"
 zm=$(unzip -p "$tmp/z.zip" metadata.json)
 [ "$(jq -r '.["version-name"]' <<<"$zm")" = "$want" ] && pass "zip version-name is $want" || fail "zip version-name"
 [ "$(jq -r .version <<<"$zm")" = 7 ] && pass "integer version field unchanged" || fail "integer version changed"
@@ -70,9 +70,19 @@ grep -qx "rc=$(rc)" "$tmp/o" && grep -qx "target=0.2.1" "$tmp/o" && grep -qx "ve
 [ "$(jq -r '.["version-name"]' "$tmp/man.json")" = "$want" ] && [ "$(jq -r '.["target-version-name"]' "$tmp/man.json")" = 0.2.1 ] && pass "manifest: zip version-name and target" || fail "manifest names"
 # a dirty version in the tree is refused
 meta "1.0-beta"; expect_rc 1 "stamp refuses a version-name that is not clean" bash -c "cd '$r' && '$root/scripts/stamp-rc.sh' '$uuid' '$tmp/z.zip'"
-# the EGO pre-flight must keep rejecting a stamped zip (it never goes to EGO)
+# the dotted form fits the EGO version-name rule ^(?!^[. ]+$)[a-zA-Z0-9 .]{1,16}$: the pre-flight runs on a stamped zip
+[[ $want =~ ^[a-zA-Z0-9\ .]{1,16}$ ]] && pass "stamped version-name $want is a valid EGO version-name" || fail "stamped version-name $want"
+# length: a three-digit N still fits (0.6.1.rc999 is 11 characters); a long target does not
+meta 0.6.1; g add -A; g commit -q -m "x (#y)"
+rm -rf "$tmp/lp"; mkdir "$tmp/lp"; cp "$ext"/* "$tmp/lp/"; make_zip "$tmp/lp" "$tmp/l.zip"
+meta 12.345.678.9; expect_rc 0 "a 12-character target with a 1-digit rc stamps (16 characters)" bash -c "cd '$r' && '$root/scripts/stamp-rc.sh' '$uuid' '$tmp/l.zip'"
+meta 12.345.678.90; expect_rc 1 "a target that would make the stamp longer than 16 characters is refused" bash -c "cd '$r' && '$root/scripts/stamp-rc.sh' '$uuid' '$tmp/l.zip'"
+expect_out 'longer than 16' "length message"
+meta 0.6.1.rc2; expect_rc 1 "a tree version-name that already looks like an rc is refused" bash -c "cd '$r' && '$root/scripts/stamp-rc.sh' '$uuid' '$tmp/l.zip'"
+meta 0.2.1
+# the stamped zip passes the EGO pre-flight (the dotted form is a valid version-name)
 rm -rf "$tmp/pf"; mkdir "$tmp/pf"; cp -r "$root/$uuid/." "$tmp/pf/"; make_zip "$tmp/pf" "$tmp/pfz.zip"
 ( cd "$root" && "$root/scripts/stamp-rc.sh" "$uuid" "$tmp/pfz.zip" >/dev/null )
-expect_rc 1 "pre-flight rejects a stamped (-rc) zip" "$root/scripts/ego-preflight.sh" "$tmp/pfz.zip" --repo-url https://github.com/redcodeworks/gnome-shell-extension-desktop-nav --license-dir "$root"
-expect_out 'version-name must be' "pre-flight: version-name message"
+expect_rc 0 "pre-flight accepts a stamped (.rc) zip" "$root/scripts/ego-preflight.sh" "$tmp/pfz.zip" --repo-url https://github.com/redcodeworks/gnome-shell-extension-desktop-nav --license-dir "$root"
+expect_out "version-name '0\\.[0-9]+\\.[0-9]+\\.rc[0-9]+'" "pre-flight: reports the stamped version-name"
 finish

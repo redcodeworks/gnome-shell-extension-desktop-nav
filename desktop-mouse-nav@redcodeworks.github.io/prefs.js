@@ -24,7 +24,9 @@ const CONTEXT_TEXT = {
     },
     shell: {
         title: 'Top bar and shell surfaces',
-        description: 'Used when the pointer is over Shell surfaces such as the top bar. GNOME never passes mouse buttons pressed over application windows to extensions, so nothing can be set for windows.',
+        description: 'Used when the pointer is over Shell surfaces such as the top bar. '
+            + 'GNOME never passes mouse buttons pressed over application windows to extensions, '
+            + 'so nothing can be set for windows.',
     },
     overview: {
         title: 'Overview',
@@ -123,7 +125,8 @@ function showRuleDialog(window, context, existingRules, onAdd) {
         css_classes: ['title-3'], wrap: true, justify: Gtk.Justification.CENTER,
     });
     const hint = new Gtk.Label({
-        label: 'Hold modifier keys while you click or scroll to pre-fill the modifier.',
+        label: 'Only a mouse button or the wheel can be detected here, not keyboard keys. '
+            + 'Hold modifier keys while you click or scroll to pre-fill the modifier.',
         css_classes: ['dim-label'], wrap: true, justify: Gtk.Justification.CENTER,
     });
     const status = new Gtk.Label({label: '', wrap: true, css_classes: ['error'], visible: false});
@@ -454,6 +457,8 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
             icon_name: 'user-trash-symbolic', valign: Gtk.Align.CENTER,
             css_classes: ['flat'], tooltip_text: 'Delete this rule',
         });
+        // An icon-only button needs a name for screen readers (the tooltip is not read as the label).
+        remove.update_property([Gtk.AccessibleProperty.LABEL], ['Delete this rule']);
         remove.connect('clicked', () => edit.remove());
 
         row.add_prefix(modifierDrop);

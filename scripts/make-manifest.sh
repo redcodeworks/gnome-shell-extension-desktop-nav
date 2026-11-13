@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Write manifest.json for a packed extension zip: what the promote workflow later
-# verifies. "version-name" is the ZIP's (a testing zip is stamped <target>-rc<N>);
+# verifies. "version-name" is the ZIP's (a testing zip is stamped <target>.rc<N>);
 # "target-version-name" is the clean one from the tree.
 # Usage: make-manifest.sh EXT_DIR ZIP OUT_JSON  (run inside the git checkout)
 set -euo pipefail
