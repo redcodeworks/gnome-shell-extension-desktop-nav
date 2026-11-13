@@ -68,8 +68,8 @@ PY
 # the workflows that carry the required checks (and promotion) stay as they were; update these
 # sums on purpose when one of them is changed
 declare -A sums=(
-    [ci.yml]=a94ea2e353adb1adcf5a0745ba8005be97470aec0ff6052073cf5ed919cf49e8
-    [promote.yml]=906907a04ac7a9e54a1b34dcc6ee94f8cca820825a950abda19791c99eb12114
+    [ci.yml]=5f02521f0380ad05da96cf7fe987144ee59c20d578b8640c6e457d52e0d1d77a
+    [promote.yml]=e49ee13d24200a18f8336eb5b65a065df00d07d76286a1d565af8096d67e99e2
     [require-testing-branch.yml]=efc25cf8404e56c1e0d561454984cd47ab178f69fa5ae6a8331812abe3d2b29f
 )
 for f in "${!sums[@]}"; do
@@ -113,13 +113,13 @@ expect_rc 1 "release: no release yet fails" rel GHFAIL=1
 expect_out 'no published release found' "release: clear message"
 expect_rc 1 "release: empty answer fails" rel TAG=
 expect_rc 1 "release: odd tag fails" rel 'TAG=testing'
-# prereleases (the rolling testing build, its -rc names) must never be picked: the lookup is
+# prereleases (the rolling testing build, its .rc names) must never be picked: the lookup is
 # `gh release view` WITHOUT a tag, which GitHub answers with the Latest non-prerelease, and a
 # tag that is not v<digits>... is refused even if some lookup returned one
 : > "$tmp/gh.log"; LOG=$tmp/gh.log rel TAG=v0.4.1 >/dev/null 2>&1
 [ "$(cat "$tmp/gh.log")" = "gh release view --json tagName --jq .tagName" ] && pass "release: asks for the latest release, not a named tag" || fail "release: lookup arguments ($(cat "$tmp/gh.log"))"
-expect_rc 1 "release: an rc tag name is refused" rel LOG=$tmp/gh.log 'TAG=v0.6.0-rc2'
-expect_rc 1 "release: the testing build title is refused" rel LOG=$tmp/gh.log 'TAG=testing (0.6.0-rc2, 0f65598)'
+expect_rc 1 "release: an rc tag name is refused" rel LOG=$tmp/gh.log 'TAG=v0.6.0.rc2'
+expect_rc 1 "release: the testing build title is refused" rel LOG=$tmp/gh.log 'TAG=testing (0.6.0.rc2, 0f65598)'
 [ ! -s "$tmp/gh.out" ] && pass "release: nothing written on failure" || fail "release: nothing written on failure"
 
 # plan script with a stub skopeo

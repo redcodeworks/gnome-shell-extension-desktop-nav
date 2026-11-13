@@ -4,7 +4,7 @@
 # Finds the successful `ci` run on `testing` whose commit has the same TREE as
 # the checked-out main commit (equal for merge, squash and rebase merges),
 # downloads its artifact and verifies it. It never builds anything. The tested zip of a
-# testing build carries version-name <version>-rc<N> (scripts/stamp-rc.sh); the release must
+# testing build carries version-name <version>.rc<N> (scripts/stamp-rc.sh); the release must
 # carry the clean <version>, so the script REPACKS: it copies the tested zip and replaces
 # only its metadata.json with the one committed in this tree (checked first: the zip's
 # metadata.json equals the tree's except for version-name, and every other zip entry is
@@ -33,6 +33,7 @@ version=$(jq -r '.["version-name"] // empty' "$meta")
 uuid=$(jq -r '.uuid // empty' "$meta")
 [ -n "$version" ] || fail "metadata.json has no version-name (bump it by hand, for example 0.1.0)"
 [[ $version =~ ^[0-9A-Za-z.]{1,16}$ ]] || fail "version-name '$version' must be 1-16 characters of letters, numbers and periods (no spaces or hyphens)"
+[[ $version =~ \.rc[0-9]+$ ]] && fail "version-name '$version' looks like a release candidate (.rc<N> is only for testing builds)"
 [ -n "$uuid" ] || fail "metadata.json has no uuid"
 tag="v$version"
 echo "main commit $commit, tree $tree, version-name $version, tag $tag"
@@ -82,7 +83,7 @@ have=$(sha256sum "$zip" | cut -d' ' -f1)
 zmeta=$(unzip -p "$zip" metadata.json) || fail "no metadata.json inside the zip"
 [ "$(jq -r .uuid <<<"$zmeta")" = "$uuid" ] || fail "uuid inside the zip differs from the tree"
 tested=$(jq -r '.["version-name"]' <<<"$zmeta")
-[[ $tested == "$version" || $tested =~ ^"$version"-rc[0-9]+$ ]] || fail "version-name inside the zip ($tested) is neither $version nor $version-rc<N>"
+[[ $tested == "$version" || $tested =~ ^"$version"\.rc[0-9]+$ ]] || fail "version-name inside the zip ($tested) is neither $version nor $version.rc<N>"
 # the tested zip's metadata.json is the tree's with only version-name stamped
 [ "$(jq -S 'del(.["version-name"])' <<<"$zmeta")" = "$(jq -S 'del(.["version-name"])' "$meta")" ] || fail "metadata.json inside the zip differs from the tree beyond version-name"
 echo "verified: tested zip sha256 $have, uuid $uuid, tested version-name $tested, release version-name $version"

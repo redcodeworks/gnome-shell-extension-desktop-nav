@@ -40,6 +40,7 @@ expect_rc 0 "second run is idempotent" inst; expect_out 'already installed' "alr
 expect_rc 0 "named version" inst 0.1.1; expect_out 'already installed' "named version, same zip"
 expect_rc 0 "v-prefixed version" inst v0.1.1; expect_out 'already installed' "v prefix accepted"
 expect_rc 1 "missing release fails" inst 9.9.9
+expect_rc 1 "an .rc version is not a release" inst 0.6.1.rc3; expect_out 'just install --testing' "rc version points to --testing"
 
 # testing prerelease only (same version-name, different zip)
 reset; mkrel testing 0.2.0 a
@@ -48,8 +49,8 @@ expect_rc 0 "testing only: --testing installs" inst --testing; [ "$(ver)" = 0.2.
 expect_rc 0 "testing second run is idempotent" inst --testing; expect_out 'already installed' "testing already installed"
 
 # a stamped rc testing build installs like any other (version-name is free text to the installer)
-reset; mkrel testing 0.6.0-rc3 a
-expect_rc 0 "rc-stamped testing zip installs" inst --testing; [ "$(ver)" = 0.6.0-rc3 ] && pass "rc version-name installed" || fail "rc version $(ver)"
+reset; mkrel testing 0.6.1.rc3 a
+expect_rc 0 "rc-stamped testing zip installs" inst --testing; [ "$(ver)" = 0.6.1.rc3 ] && pass "rc version-name installed" || fail "rc version $(ver)"
 expect_rc 0 "rc-stamped testing zip is idempotent" inst --testing; expect_out 'already installed' "rc zip already installed"
 expect_rc 1 "rc testing build is not the default release" inst; expect_out 'no release' "default ignores the rc prerelease"
 

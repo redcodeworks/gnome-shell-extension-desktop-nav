@@ -82,7 +82,7 @@ nv=$tmp/nv; mk_repo "$nv" 0.1.0; jq 'del(.["version-name"])' "$nv/$uuid/metadata
 ( cd "$nv" && git -c user.name=t -c user.email=t@t commit -q -am nov )
 reset; arts x testing 1; expect_rc 1 "missing version-name is rejected" run_promote "$nv"
 
-# release candidates: the tested zip is stamped <version>-rc<N> (scripts/stamp-rc.sh), the release is a clean repack
+# release candidates: the tested zip is stamped <version>.rc<N> (scripts/stamp-rc.sh), the release is a clean repack
 crc() { unzip -v "$1" | awk 'NF >= 8 && $1 ~ /^[0-9]+$/ && $NF != "metadata.json" {print $1, $7, $NF}' | sort; }
 rcrepo=$tmp/rcrepo; mk_repo "$rcrepo" 0.6.0
 jq '. + {version: 7}' "$rcrepo/$uuid/metadata.json" > "$rcrepo/m" && mv "$rcrepo/m" "$rcrepo/$uuid/metadata.json"
@@ -90,7 +90,7 @@ jq '. + {version: 7}' "$rcrepo/$uuid/metadata.json" > "$rcrepo/m" && mv "$rcrepo
 rctree=$(git -C "$rcrepo" rev-parse 'HEAD^{tree}')
 rcart=$tmp/rcart; mk_artifact "$rcrepo" "$rcart"
 ( cd "$rcrepo" && "$root/scripts/stamp-rc.sh" "$uuid" "$rcart/$uuid.shell-extension.zip" >/dev/null && "$root/scripts/make-manifest.sh" "$uuid" "$rcart/$uuid.shell-extension.zip" "$rcart/manifest.json" >/dev/null )
-[ "$(unzip -p "$rcart/$uuid.shell-extension.zip" metadata.json | jq -r '.["version-name"]')" = "0.6.0-rc2" ] && pass "rc fixture: tested zip is stamped (2 commits, no tag)" || fail "rc fixture stamped"
+[ "$(unzip -p "$rcart/$uuid.shell-extension.zip" metadata.json | jq -r '.["version-name"]')" = "0.6.0.rc2" ] && pass "rc fixture: tested zip is stamped (2 commits, no tag)" || fail "rc fixture stamped"
 export STUB_ARTIFACT_DIR=$rcart
 reset; arts "$rctree" testing 43
 expect_rc 0 "stamped testing zip is promoted" run_promote "$rcrepo"
@@ -99,10 +99,10 @@ rz=$tmp/work/release/$uuid.shell-extension.zip
 [ "$(unzip -p "$rz" metadata.json | sha256sum)" = "$(sha256sum < "$rcrepo/$uuid/metadata.json")" ] && pass "release metadata.json is byte-identical to the tree's" || fail "release metadata.json vs tree"
 [ "$(unzip -p "$rz" metadata.json | jq -r .version)" = 7 ] && pass "integer version untouched" || fail "integer version"
 [ "$(crc "$rz")" = "$(crc "$rcart/$uuid.shell-extension.zip")" ] && [ -n "$(crc "$rz")" ] && pass "release zip entries equal the tested zip's (except metadata.json)" || fail "repack changed other entries"
-[ "$(unzip -p "$rcart/$uuid.shell-extension.zip" metadata.json | jq -r '.["version-name"]')" = "0.6.0-rc2" ] && pass "tested zip itself is left alone" || fail "tested zip modified"
+[ "$(unzip -p "$rcart/$uuid.shell-extension.zip" metadata.json | jq -r '.["version-name"]')" = "0.6.0.rc2" ] && pass "tested zip itself is left alone" || fail "tested zip modified"
 ( cd "$tmp/work/release" && sha256sum -c "$uuid.shell-extension.zip.sha256" >/dev/null ) && pass "release .sha256 covers the repacked zip" || fail "release sha256"
 grep -q "^zip=$rz\$" "$tmp/gho" && pass "zip output is the release zip" || fail "zip output"
-grep -q '^tested_version=0.6.0-rc2' "$tmp/gho" && pass "tested version output" || fail "tested_version output"
+grep -q '^tested_version=0.6.0.rc2' "$tmp/gho" && pass "tested version output" || fail "tested_version output"
 
 # a stamped zip whose metadata differs from the tree beyond version-name is refused
 tam=$tmp/tam; cp -r "$rcart" "$tam"; t2=$tmp/t2; mkdir "$t2"
@@ -112,7 +112,17 @@ jq --arg s "$(sha256sum "$tam/$uuid.shell-extension.zip" | cut -d' ' -f1)" '.zip
 reset; arts "$rctree" testing 43; STUB_ARTIFACT_DIR=$tam expect_rc 1 "zip metadata that differs beyond version-name is refused" run_promote "$rcrepo"
 expect_out 'beyond version-name' "beyond version-name: message"
 
-# a version-name that is not <version> or <version>-rc<N> is refused
+# the old hyphen rc form is no longer accepted in the tested zip
+oh=$tmp/oh; cp -r "$rcart" "$oh"
+unzip -p "$oh/$uuid.shell-extension.zip" metadata.json | jq '.["version-name"] = "0.6.0-rc2"' > "$t2/metadata.json"
+( cd "$t2" && zip -q -X "$oh/$uuid.shell-extension.zip" metadata.json )
+jq --arg s "$(sha256sum "$oh/$uuid.shell-extension.zip" | cut -d' ' -f1)" '.zip_sha256 = $s' "$oh/manifest.json" > "$oh/m" && mv "$oh/m" "$oh/manifest.json"
+reset; arts "$rctree" testing 43; STUB_ARTIFACT_DIR=$oh expect_rc 1 "the old hyphen rc form (0.6.0-rc2) in the zip is refused" run_promote "$rcrepo"
+# a tree whose own version-name looks like an rc is never released
+rr=$tmp/rr; mk_repo "$rr" 0.6.0.rc2
+reset; arts x testing 1; expect_rc 1 "a tree version-name ending in .rc<N> is refused" run_promote "$rr"; expect_out 'release candidate' "rc tree message"
+
+# a version-name that is not <version> or <version>.rc<N> is refused
 odd=$tmp/odd; cp -r "$rcart" "$odd"
 unzip -p "$odd/$uuid.shell-extension.zip" metadata.json | jq '.["version-name"] = "0.6.0-beta"' > "$t2/metadata.json"
 ( cd "$t2" && zip -q -X "$odd/$uuid.shell-extension.zip" metadata.json )

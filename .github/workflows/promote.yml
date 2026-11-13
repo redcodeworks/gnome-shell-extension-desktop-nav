@@ -2,7 +2,7 @@ name: promote
 
 # On a merge into main: release the tested build of this exact tree. Builds nothing; the
 # tested zip is repacked with only its metadata.json replaced (clean version-name instead of
-# <version>-rc<N>), see scripts/promote.sh.
+# <version>.rc<N>), see scripts/promote.sh.
 # Fails (publishing nothing) when no passing testing build has the same tree; ends
 # green with a notice when the version-name was already released.
 on:

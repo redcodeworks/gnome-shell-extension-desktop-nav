@@ -475,7 +475,9 @@ export function debugLine(enabled, button, state, mods, context, found, result, 
     const rule = found ? `${found.context}[${found.index}]` : 'none';
     const action = found ? found.rule.action : 'none';
     const note = (reason ? ` reason=${reason}` : '') + (extra ? ` ${extra}` : '');
-    return `desktop-mouse-nav: button=${inputLabel(button)} state=${hexState(state)} mods=${mods === null ? 'other' : mods || 'none'} context=${context} match=${found ? 'yes' : 'no'} rule=${rule} action=${action} result=${result}${note}`;
+    const modsText = mods === null ? 'other' : mods || 'none';
+    return `desktop-mouse-nav: button=${inputLabel(button)} state=${hexState(state)} mods=${modsText} `
+        + `context=${context} match=${found ? 'yes' : 'no'} rule=${rule} action=${action} result=${result}${note}`;
 }
 
 // Target workspace index for a step (-1/+1) from the active one, or null (do nothing,
