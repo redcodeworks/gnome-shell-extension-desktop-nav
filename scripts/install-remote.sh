@@ -48,6 +48,9 @@ fi
 if [ -n "$version" ] && ! [[ $version =~ ^v?[0-9A-Za-z.]+$ ]]; then
     echo "error: bad version '$version'" >&2; usage >&2; exit 1
 fi
+if [[ $version =~ \.rc[0-9]+$ ]]; then
+    echo "error: $version is a testing build (release candidate), not a release; use: just install --testing" >&2; exit 1
+fi
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 

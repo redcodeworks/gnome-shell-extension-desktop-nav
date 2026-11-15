@@ -13,6 +13,16 @@ lint:
     node -e 'JSON.parse(require("fs").readFileSync("{{uuid}}/metadata.json","utf8"))'
     d=$(mktemp -d); rc=0; for f in {{uuid}}/*.js; do cp "$f" "$d/$(basename "$f" .js).mjs" && node --check "$d/$(basename "$f" .js).mjs" || rc=1; done; rm -rf "$d"; exit $rc
 
+# ESLint over the extension JS (dev only: nothing is installed in the repo, nothing goes into the zip). Needs node and network for npx.
+[group('development')]
+lint-js:
+    npx --yes eslint@9 {{uuid}}
+
+# Nested GNOME Shell for GNOME 49+ (--devkit replaces --nested; run install-local first; cannot test real back/forward buttons).
+[group('development')]
+nested-shell:
+    dbus-run-session gnome-shell --devkit --wayland
+
 # Build the installable zip into dist/ (creates the directory first; LICENSE, actions.js and the schema XML go in; no compiled schema).
 [group('development')]
 pack:

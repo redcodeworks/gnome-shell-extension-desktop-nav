@@ -46,7 +46,7 @@ while IFS= read -r f; do
         */) continue ;;
         extension.js|metadata.json|prefs.js|stylesheet.css) ;;
         schemas/*.gschema.xml) has_schema_xml=1 ;;
-        schemas/gschemas.compiled) add WARN "files" "schemas/gschemas.compiled is shipped: not stated in the guidelines (unverified)" ;;
+        schemas/gschemas.compiled) add FAIL "files" "schemas/gschemas.compiled is shipped: EGO and gnome-extensions compile the schema themselves, leave it out" ;;
         LICENSE|LICENSE.*|COPYING|COPYING.*) has_license_file=1 ;;
         *.po|*.pot|*.mo) add FAIL "files" "translation file $f (not allowed in the upload)" ;;
         *.png|*.jpg|*.jpeg|*.gif|*.svg|*.webp|*.ico|*.mp3|*.ogg|*.wav|*.mp4|*.webm|*.ttf|*.otf|*.woff|*.woff2) add FAIL "files" "media/font file $f" ;;
@@ -75,7 +75,8 @@ if [ -f "$m" ] && jq -e 'type == "object"' "$m" >/dev/null 2>&1; then
     mt 'has("version")' && add FAIL "metadata" "has a \"version\" field: EGO assigns it, remove it (use version-name)" || add PASS "metadata" "no version field"
     if mt 'has("version-name")'; then
         vn=$(mj '.["version-name"]')
-        [[ $vn =~ ^[0-9A-Za-z.\ ]{1,16}$ ]] && add PASS "metadata" "version-name '$vn'" || add FAIL "metadata" "version-name must be 1-16 characters of letters, numbers, spaces and periods"
+        if [[ $vn =~ ^[0-9A-Za-z.\ ]{1,16}$ && ! $vn =~ ^[.\ ]+$ ]]; then add PASS "metadata" "version-name '$vn'"
+        else add FAIL "metadata" "version-name must be 1-16 characters of letters, numbers, spaces and periods (not only periods and spaces); no hyphens"; fi
     else
         add WARN "metadata" "no version-name (optional, but the release tag needs it)"
     fi
@@ -115,6 +116,19 @@ else
     [ -f "$m" ] && add FAIL "metadata" "metadata.json is not a JSON object"
 fi
 
+# --- settings schema (id and path must live under org.gnome.shell.extensions) ---
+for sx in "$src"/schemas/*.gschema.xml; do
+    [ -f "$sx" ] || continue
+    sn=${sx#"$src"/}
+    sid=$(grep -oE '<schema[[:space:]][^>]*>' "$sx" | head -n1 | grep -oE '\bid="[^"]*"' | head -n1 | cut -d'"' -f2)
+    spath=$(grep -oE '<schema[[:space:]][^>]*>' "$sx" | head -n1 | grep -oE '\bpath="[^"]*"' | head -n1 | cut -d'"' -f2)
+    if [[ $sid == org.gnome.shell.extensions* ]]; then add PASS "schema" "$sn: id '$sid' starts with org.gnome.shell.extensions"
+    else add FAIL "schema" "$sn: schema id '${sid:-?}' must start with org.gnome.shell.extensions"; fi
+    if [ -z "$spath" ]; then add PASS "schema" "$sn: no path attribute (the id decides)"
+    elif [[ $spath == /org/gnome/shell/extensions* ]]; then add PASS "schema" "$sn: path '$spath' starts with /org/gnome/shell/extensions"
+    else add FAIL "schema" "$sn: schema path '$spath' must start with /org/gnome/shell/extensions"; fi
+done
+
 # --- license (repository, not the zip) ---
 lic=
 for c in LICENSE LICENSE.md LICENSE.txt COPYING COPYING.md; do [ -f "$lic_dir/$c" ] && { lic="$lic_dir/$c"; break; }; done
@@ -150,6 +164,20 @@ for f in "${js_files[@]}"; do
         fi
     fi
     grep -qE '(^|[^A-Za-z_.])(print|log)\(|\bconsole\.debug\(' "$f" && add WARN "code" "$n: console.debug/print/log present: make sure it is not inside an event handler or hot path"
+    over=$(awk 'length > 200 { c++ } END { print c+0 }' "$f")
+    [ "$over" -gt 0 ] && add WARN "code" "$n: $over line(s) over 200 characters (reviewers ask for readable code; wrap them)"
+    # imports that must not appear in this file (the guidelines: the Shell side must not use Gdk, Gtk or Adw; the prefs side must not use the Shell libraries)
+    case $n in
+        extension.js)
+            grep -nE "(from|import)[[:space:]]*\(?[[:space:]]*['\"]gi://(Gdk|Gtk|Adw)([?'\"]|$)" "$f" >/dev/null && add FAIL "code" "$n: imports Gdk, Gtk or Adw (not allowed in the Shell process)" ;;
+        prefs.js)
+            grep -nE "(from|import)[[:space:]]*\(?[[:space:]]*['\"]gi://(Clutter|Meta|St|Shell)([?'\"]|$)" "$f" >/dev/null && add FAIL "code" "$n: imports Clutter, Meta, St or Shell (not allowed in the preferences process)"
+            grep -nE "(from|import)[[:space:]]*\(?[[:space:]]*['\"]resource:///org/gnome/shell/" "$f" >/dev/null && add FAIL "code" "$n: imports a Shell resource module (not allowed in the preferences process)" ;;
+        actions.js)
+            grep -nE "^[[:space:]]*import[[:space:]]|[^A-Za-z_.]import[[:space:]]*\(|^[[:space:]]*export[[:space:]].*[[:space:]]from[[:space:]]+['\"]" "$f" >/dev/null && add FAIL "code" "$n: imports something (the shared logic module must import nothing)" ;;
+    esac
+    grep -qE '\bSt\.Clipboard\b' "$f" && add WARN "code" "$n: St.Clipboard: clipboard access needs a justification for the reviewer"
+    grep -qE '\bload_contents(_async|_bytes)?\(|\bfile_get_contents\(' "$f" && add WARN "code" "$n: load_contents/file_get_contents: reading files needs a justification (and must not block the main loop)"
     grep -qE 'Gio\.Subprocess|SubprocessLauncher' "$f" && add FAIL "code" "$n: Gio.Subprocess is not allowed here"
     grep -qE 'GLib\.spawn_|GLib\.spawn\b' "$f" && add WARN "code" "$n: GLib.spawn*: spawning processes needs a justification"
 

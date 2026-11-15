@@ -14,7 +14,7 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 import {
     ADVANCED_SWITCHES, CONTEXTS, GTK_MASKS, MODIFIER_COMBOS, WHEEL_DOWN, WHEEL_LEFT, WHEEL_RIGHT,
     WHEEL_SETTINGS, WHEEL_UP, WORKSPACE_SWITCHES, actionAvailability, actionsForContext, buttonName, findDuplicate, isWheelButton,
-    makeRule, modifiersFromState, parseRules, rulesKey, serializeRules, unbindableReason,
+    makeRule, modifierTooltip, modifiersFromState, parseRules, rulesKey, serializeRules, unbindableReason,
 } from './actions.js';
 
 const CONTEXT_TEXT = {
@@ -24,7 +24,9 @@ const CONTEXT_TEXT = {
     },
     shell: {
         title: 'Top bar and shell surfaces',
-        description: 'Used when the pointer is over Shell surfaces such as the top bar. GNOME never passes mouse buttons pressed over application windows to extensions, so nothing can be set for windows.',
+        description: 'Used when the pointer is over Shell surfaces such as the top bar. '
+            + 'GNOME never passes mouse buttons pressed over application windows to extensions, '
+            + 'so nothing can be set for windows.',
     },
     overview: {
         title: 'Overview',
@@ -46,6 +48,8 @@ const UNAVAILABLE_NOTE = 'Unavailable in this version';
 const NOT_HERE_NOTE = 'Not available in this list';
 const MODIFIER_IDS = MODIFIER_COMBOS.map(([mods]) => mods);
 const MODIFIER_LABELS = MODIFIER_COMBOS.map(([, label]) => label);
+// Tooltips per entry: the spelled-out combination for aliases (MEH, HYPER), '' otherwise.
+const MODIFIER_TIPS = MODIFIER_IDS.map(modifierTooltip);
 
 function stringList(labels) {
     return Gtk.StringList.new(labels);
@@ -54,7 +58,7 @@ function stringList(labels) {
 // Popup list items that show the whole text (libadwaita's default items are cut off at 20
 // characters) with a check mark on the selected one. `widget` is the Adw.ComboRow or
 // Gtk.DropDown; any failure leaves the default items in place.
-function showFullLabels(widget) {
+function showFullLabels(widget, tips = null) {
     try {
         const factory = new Gtk.SignalListItemFactory();
         const handlers = new Map();
@@ -71,6 +75,7 @@ function showFullLabels(widget) {
             const label = box.get_first_child();
             const check = box.get_last_child();
             label.label = listItem.get_item()?.string ?? '';
+            label.tooltip_text = tips?.[listItem.position] || null;
             const update = () => {
                 check.opacity = widget.selected_item === listItem.get_item() ? 1 : 0;
             };
@@ -99,6 +104,12 @@ function writeRules(settings, context, rules) {
     settings.set_value(rulesKey(context), new GLib.Variant('a(uss)', serializeRules(rules)));
 }
 
+// Fixed widths (pixels) of the two dropdowns in a rule row. The modifier width is
+// 9.5 px per character of the longest label ('Ctrl+Shift+Super', 16) rounded up; the
+// earlier 190 was the same 9.5 px for the 20-character 'Alt+Ctrl+Shift+Super'.
+const MODIFIER_DROP_WIDTH = 160;
+const ACTION_DROP_WIDTH = 240;
+
 const NO_MODIFIER_NOTE = 'No modifier: plain scrolling triggers this rule.';
 
 // The "Press a mouse button" dialog. `onAdd(button, mods, action)` is called on Add.
@@ -114,7 +125,8 @@ function showRuleDialog(window, context, existingRules, onAdd) {
         css_classes: ['title-3'], wrap: true, justify: Gtk.Justification.CENTER,
     });
     const hint = new Gtk.Label({
-        label: 'Hold modifier keys while you click or scroll to pre-fill the modifier.',
+        label: 'Only a mouse button or the wheel can be detected here, not keyboard keys. '
+            + 'Hold modifier keys while you click or scroll to pre-fill the modifier.',
         css_classes: ['dim-label'], wrap: true, justify: Gtk.Justification.CENTER,
     });
     const status = new Gtk.Label({label: '', wrap: true, css_classes: ['error'], visible: false});
@@ -126,7 +138,12 @@ function showRuleDialog(window, context, existingRules, onAdd) {
     const buttonRow = new Adw.ActionRow({title: 'Button'});
     const modifierRow = new Adw.ComboRow({title: 'Modifier', model: stringList(MODIFIER_LABELS)});
     const actionRow = new Adw.ComboRow({title: 'Action', model: stringList(choices.labels)});
-    showFullLabels(modifierRow);
+    showFullLabels(modifierRow, MODIFIER_TIPS);
+    const updateRowTip = () => {
+        modifierRow.tooltip_text = MODIFIER_TIPS[modifierRow.selected] || null;
+    };
+    updateRowTip();
+    modifierRow.connect('notify::selected', updateRowTip);
     showFullLabels(actionRow);
     // Wheel rules need a modifier by default so normal scrolling is never taken over.
     const requireRow = new Adw.SwitchRow({
@@ -382,8 +399,10 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
         return group;
     }
 
-    // One rule: button name as the title; modifier and action dropdowns and a delete
-    // button as suffixes. `edit.change(field, value)` returns false to refuse the change.
+    // One rule, left to right: the modifier dropdown (prefix), the button name (title), the
+    // action dropdown and the delete button (suffixes). Both dropdowns have a fixed width so
+    // rows do not jump or truncate when a selection changes (the widths are a guess sized to
+    // the longest label, UNVERIFIED in a live session). `edit.change(field, value)` returns false to refuse the change.
     _buildRuleRow(rule, context, edit) {
         const choices = actionChoices(context);
         const availability = actionAvailability(rule.action, context);
@@ -399,13 +418,20 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
 
         const modifierDrop = new Gtk.DropDown({
             model: stringList(MODIFIER_LABELS), valign: Gtk.Align.CENTER,
+            width_request: MODIFIER_DROP_WIDTH,
             selected: Math.max(0, MODIFIER_IDS.indexOf(mods)),
         });
         const actionDrop = new Gtk.DropDown({
             model: stringList(choices.labels), valign: Gtk.Align.CENTER,
+            width_request: ACTION_DROP_WIDTH,
             selected: Math.max(0, choices.ids.indexOf(rule.action)),
         });
-        showFullLabels(modifierDrop);
+        showFullLabels(modifierDrop, MODIFIER_TIPS);
+        const updateModifierTip = () => {
+            modifierDrop.tooltip_text = MODIFIER_TIPS[modifierDrop.selected] || null;
+        };
+        updateModifierTip();
+        modifierDrop.connect('notify::selected', updateModifierTip);
         showFullLabels(actionDrop);
         let reverting = false;
         modifierDrop.connect('notify::selected', () => {
@@ -431,9 +457,11 @@ export default class DesktopMouseNavPreferences extends ExtensionPreferences {
             icon_name: 'user-trash-symbolic', valign: Gtk.Align.CENTER,
             css_classes: ['flat'], tooltip_text: 'Delete this rule',
         });
+        // An icon-only button needs a name for screen readers (the tooltip is not read as the label).
+        remove.update_property([Gtk.AccessibleProperty.LABEL], ['Delete this rule']);
         remove.connect('clicked', () => edit.remove());
 
-        row.add_suffix(modifierDrop);
+        row.add_prefix(modifierDrop);
         // A disabled action is kept as saved (the dropdown would silently change it).
         if (availability === 'ok')
             row.add_suffix(actionDrop);

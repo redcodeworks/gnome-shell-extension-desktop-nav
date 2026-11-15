@@ -1,6 +1,8 @@
 name: promote
 
-# On a merge into main: release the tested zip of this exact tree. Builds nothing.
+# On a merge into main: release the tested build of this exact tree. Builds nothing; the
+# tested zip is repacked with only its metadata.json replaced (clean version-name instead of
+# <version>.rc<N>), see scripts/promote.sh.
 # Fails (publishing nothing) when no passing testing build has the same tree; ends
 # green with a notice when the version-name was already released.
 on:
@@ -48,8 +50,9 @@ jobs:
           SUM: ${{ steps.v.outputs.sha256 }}
           RUN: ${{ steps.v.outputs.run }}
           TREE: ${{ steps.v.outputs.tree }}
+          TESTED: ${{ steps.v.outputs.tested_version }}
         run: |
-          notes="Built once by the testing run $RUN (https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN) and promoted unchanged.
+          notes="Built once by the testing run $RUN (https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN) as testing build $TESTED and promoted: only metadata.json was replaced, so the version-name is the clean one.
           Tree $TREE, zip sha256 $SUM.
           Verify: gh attestation verify <zip> -R $GITHUB_REPOSITORY"
           gh release create "$TAG" "$ZIP" "$SUM_FILE" --target "$GITHUB_SHA" --title "$TAG" --notes "$notes"
